@@ -1,27 +1,14 @@
- #include <deal.II/base/function.h>
-#include <deal.II/base/quadrature.h>
-#include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_dg_vector.h>
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_face.h>
-#include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_raviart_thomas.h>
 #include <deal.II/fe/fe_system.h>
-#include <deal.II/fe/fe_values.h>
-#include <deal.II/fe/mapping_q1.h>
 #include <deal.II/grid/grid_generator.h>
-#include <deal.II/grid/tria.h>
-#include <deal.II/grid/tria_accessor.h>
-#include <deal.II/grid/tria_iterator.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
-#include <deal.II/lac/lapack_full_matrix.h>
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/sparse_ilu.h>
-#include <deal.II/lac/sparse_matrix.h>
-#include <deal.II/lac/vector.h>
 #include <deal.II/numerics/data_out.h>
-#include <deal.II/numerics/matrix_tools.h>
 
 #include <iostream>
 #include <fstream>
@@ -53,7 +40,7 @@ Assert (values.size() == dim, ExcDimensionMismatch (values.size(), dim));
 
 switch(dim)
 {
-case 1: values(0) = 1; break; 
+case 1: values(0) = 1; break;
 case 2: values(0) = 1; values(1) = 1; break;
 case 3: values(0) = 1; values(1) = 1; values(2) = 1; break;
 }
@@ -107,11 +94,11 @@ private:
 	void solve (); // Solve the system. 
 	void output_solution () const; // Output the solution.
     void compute_local_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, Vector<double> &local_bilinear_form_values); // Intermediate function needed in assemble_system to assemble the system matrix.
-    void compute_local_optimal_test_functions (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, const Vector<double> &local_bilinear_form_values, Vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
+    void compute_local_optimal_test_functions (const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_test_cell, const Vector<double> &local_bilinear_form_values, Vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
 
     Triangulation<dim> triangulation;
-    FESystem<dim> fe_trial, fe_test;
-	DoFHandler<dim> dof_handler_trial, dof_handler_test;
+    FESystem<dim> fe_trial_cell, fe_trial_face, fe_trial, fe_test;
+	DoFHandler<dim> dof_handler_trial_cell, dof_handler_trial_face, dof_handler_trial, dof_handler_test;
 
 	ConstraintMatrix constraints;
 	SparsityPattern sparsity_pattern;
@@ -128,10 +115,10 @@ private:
 template <int dim>
 ConvectionDiffusionDPG<dim>::ConvectionDiffusionDPG ()
                 :
-				fe_trial (FESystem<dim>(FE_Q<dim>(degree), 1, FE_RaviartThomas<dim>(degree - 1), 1), FESystem<dim>(FE_FaceQ<dim>(degree + 1), 1, FE_FaceQ<dim>(degree), 1)),
-				fe_test (FE_DGQ<dim>(degree + degree_offset), 1, FE_DGRaviartThomas<dim>(degree - 1 + degree_offset), 1),
-				dof_handler_trial (triangulation),
-			    dof_handler_test (triangulation)
+				fe_trial_cell (FE_Q<dim>(degree), 1, FE_RaviartThomas<dim>(degree - 1), 1), fe_trial_face (FE_FaceQ<dim>(degree + 1), 1, FE_FaceQ<dim>(degree), 1),
+				fe_trial (fe_trial_cell, 1, fe_trial_face, 1), fe_test (FE_DGQ<dim>(degree + degree_offset), 1, FE_DGRaviartThomas<dim>(degree - 1 + degree_offset), 1),
+				dof_handler_trial_cell (triangulation), dof_handler_trial_face (triangulation), 
+				dof_handler_trial (triangulation), dof_handler_test (triangulation)
 
 {}
 
@@ -140,8 +127,8 @@ ConvectionDiffusionDPG<dim>::ConvectionDiffusionDPG ()
 template <int dim>
 void ConvectionDiffusionDPG<dim>::setup_system ()
 {
-dof_handler_trial.distribute_dofs (fe_trial);
-dof_handler_test.distribute_dofs (fe_test);
+dof_handler_trial_cell.distribute_dofs (fe_trial_cell); dof_handler_trial_face.distribute_dofs (fe_trial_face);
+dof_handler_trial.distribute_dofs (fe_trial); dof_handler_test.distribute_dofs (fe_test);
 
 const unsigned int no_of_trial_dofs = dof_handler_trial.n_dofs();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell;
@@ -173,19 +160,21 @@ local_optimal_test_functions.reinit (no_of_trial_dofs_per_cell*no_of_test_dofs_p
 template <int dim>
 void ConvectionDiffusionDPG<dim>::assemble_system ()
 {
-const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+2);
-const QGauss<dim-1>  quadrature_formula_face (degree+degree_offset+2);
+const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+1);
+const QGauss<dim-1>  quadrature_formula_face (degree+degree_offset+1);
 
 const unsigned int no_of_quad_points_cell = quadrature_formula_cell.size();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell;
 const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
 
 typename DoFHandler<dim>::active_cell_iterator trial_cell = dof_handler_trial.begin_active(), final_cell = dof_handler_trial.end();
+typename DoFHandler<dim>::active_cell_iterator trial_cell_interior = dof_handler_trial_cell.begin_active();
+typename DoFHandler<dim>::active_cell_iterator trial_cell_trace = dof_handler_trial_face.begin_active();
 typename DoFHandler<dim>::active_cell_iterator test_cell = dof_handler_test.begin_active();
 
-FEValues<dim> fe_values_trial_cell (fe_trial, quadrature_formula_cell, update_values | update_quadrature_points | update_JxW_values);
+FEValues<dim> fe_values_trial_cell (fe_trial_cell, quadrature_formula_cell, update_values | update_quadrature_points | update_JxW_values);
 FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_values | update_gradients | update_quadrature_points | update_JxW_values);
-FEFaceValues<dim> fe_values_trial_face (fe_trial, quadrature_formula_face, update_values | update_quadrature_points | update_JxW_values);
+FEFaceValues<dim> fe_values_trial_face (fe_trial_face, quadrature_formula_face, update_values | update_quadrature_points | update_JxW_values);
 FEFaceValues<dim> fe_values_test_face (fe_test, quadrature_formula_face, update_values | update_quadrature_points | update_JxW_values | update_normal_vectors);
    
 FullMatrix<double> local_matrix (no_of_trial_dofs_per_cell, no_of_trial_dofs_per_cell);
@@ -193,12 +182,13 @@ Vector<double> local_rhs_values (no_of_trial_dofs_per_cell);
 std::vector<double> forcing_values (no_of_quad_points_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial (no_of_trial_dofs_per_cell);
 
-    for (; trial_cell!=final_cell; ++trial_cell, ++test_cell)
+    for (; trial_cell!=final_cell; ++trial_cell, ++trial_cell_interior, ++trial_cell_trace, ++test_cell)
     {
-    fe_values_trial_cell.reinit(trial_cell); fe_values_test_cell.reinit(test_cell);
+	fe_values_trial_cell.reinit (trial_cell_interior);
+	fe_values_test_cell.reinit (test_cell);
 
-    compute_local_bilinear_form_values (trial_cell, test_cell, fe_values_trial_cell, fe_values_test_cell, fe_values_trial_face, fe_values_test_face, local_bilinear_form_values);
-	compute_local_optimal_test_functions (trial_cell, fe_values_trial_cell, fe_values_test_cell, local_bilinear_form_values, local_optimal_test_functions);
+    compute_local_bilinear_form_values (trial_cell_trace, test_cell, fe_values_trial_cell, fe_values_test_cell, fe_values_trial_face, fe_values_test_face, local_bilinear_form_values);
+	compute_local_optimal_test_functions (test_cell, fe_values_test_cell, local_bilinear_form_values, local_optimal_test_functions);
 
 	Forcing<dim>().value_list (fe_values_test_cell.get_quadrature_points(), forcing_values);
 
@@ -206,45 +196,41 @@ std::vector<types::global_dof_index> local_dof_indices_trial (no_of_trial_dofs_p
 
 	local_matrix = 0; local_rhs_values = 0;
 
-	// Assemble the local contributions to the system matrix.
-	for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
-	    for (unsigned int j = 0; j < no_of_trial_dofs_per_cell; ++j)
-		    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
-			{
-			local_matrix(i,j) += local_optimal_test_functions(k + i*no_of_test_dofs_per_cell)*local_bilinear_form_values(k + j*no_of_test_dofs_per_cell);
-			}
-
-    // Place the local system matrix contributions in the system matrix.
-	for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
-	    for (unsigned int j = 0; j < no_of_trial_dofs_per_cell; ++j)
+	    // Assemble the local contributions to the system matrix and the right hand side vector.
+		for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 		{
-		system_matrix(local_dof_indices_trial[i], local_dof_indices_trial[j]) += local_matrix(i,j);
-		}
+		unsigned int comp_k = fe_test.system_to_base_index(k).first.first;
 
-	    // Assemble the local contributions to the right hand side vector.
-	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
+		    for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
+	            for (unsigned int j = 0; j < no_of_trial_dofs_per_cell; ++j)
+				{
+				local_matrix(i,j) += local_optimal_test_functions(k + i*no_of_test_dofs_per_cell)*local_bilinear_form_values(k + j*no_of_test_dofs_per_cell);
+				}
+
+		if (comp_k == 0)
 		{
-    	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
-		    {
-            unsigned int comp_k = fe_test.system_to_base_index(k).first.first;
-
-            if (comp_k == 0)
+		    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 			{
 			double test_cell_value = forcing_values[quad_point]*fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.JxW(quad_point);
-
-			    for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
-	     		{
-				local_rhs_values(i) += local_optimal_test_functions(k + i*no_of_test_dofs_per_cell)*test_cell_value;
-				}
-            }
-		    }
+			    
+				for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
+	            {
+		    	local_rhs_values(i) += local_optimal_test_functions(k + i*no_of_test_dofs_per_cell)*test_cell_value;
+			    }
+			}
+		}
         }
 
-		// Place the local right hand side contributions in the right hand side vector.
-		for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
-		{
-		right_hand_side(local_dof_indices_trial[i]) += local_rhs_values(i);
-		}
+		// Place the local system matrix contributions in the system matrix and the local right hand side contributions in the right hand side vector.
+        for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
+	    {
+		    for (unsigned int j = 0; j < no_of_trial_dofs_per_cell; ++j)
+		    {
+		    system_matrix(local_dof_indices_trial[i], local_dof_indices_trial[j]) += local_matrix(i,j);
+		    }
+
+     	right_hand_side(local_dof_indices_trial[i]) += local_rhs_values(i);
+	    }
     }
 }
 
@@ -296,15 +282,20 @@ data_out.write_gnuplot (gnuplot_output);
 // Intermediate function needed in assemble_system to assemble the system matrix. 
 // Takes current cell information as an input and outputs a vector whose k + i*no_of_test_dofs_per_cell entry corresponds to B(phi_i, psi_k) where {phi_i} is a local basis for U_h and {psi_k} is a local basis for the the full enriched space V_h.
 // B({u,sigma,trace(u),trace(sigma)},{v,tau}) := (u, div(tau) - b*grad(v))_K + (sigma, tau/epsilon + grad(v))_K - (trace(u), tau*n)_dK + (trace(sigma), v)_dK.
+// TODO: Work on efficiency of computation of the face terms.
 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::compute_local_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, Vector<double> &local_bilinear_form_values)
 {
 const unsigned int no_of_quad_points_cell = fe_values_trial_cell.get_quadrature().size();
 const unsigned int no_of_quad_points_face = fe_values_trial_face.get_quadrature().size();
-const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell;
+const unsigned int no_of_total_trial_dofs_per_cell = fe_trial.dofs_per_cell;
+const unsigned int no_of_interior_trial_dofs_per_cell = fe_trial_cell.dofs_per_cell;
+const unsigned int no_of_boundary_trial_dofs_per_cell = fe_trial_face.dofs_per_cell;
 const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
 
+Vector<double> cell_values (no_of_interior_trial_dofs_per_cell*no_of_test_dofs_per_cell);
+Vector<double> face_values (no_of_boundary_trial_dofs_per_cell*no_of_test_dofs_per_cell);
 std::vector<Vector<double> > convection_values (no_of_quad_points_cell, Vector<double>(dim));
 Convection<dim>().vector_value_list (fe_values_test_cell.get_quadrature_points(), convection_values);
 
@@ -333,18 +324,11 @@ local_bilinear_form_values = 0;
 
         values *= fe_values_test_cell.JxW(quad_point);
 
-		    for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
-	        {
-	        unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
-
-	        if (comp_i == 0)
-            {
+		    for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
 			    for (unsigned int d = 0; d < dim + 1; ++d)
 		        {
-				local_bilinear_form_values(k + i*no_of_test_dofs_per_cell) += fe_values_trial_cell.shape_value_component(i,quad_point,d)*values(d);
+				cell_values(k + i*no_of_test_dofs_per_cell) += fe_values_trial_cell.shape_value_component(i,quad_point,d)*values(d);
 				}
-            }
-	        }
 	    }
     }
 
@@ -366,16 +350,32 @@ local_bilinear_form_values = 0;
                 
             taudotnormal *= fe_values_test_face.JxW(quad_point); test_face_value *= std::pow(-1,face+1)*fe_values_test_face.JxW(quad_point);
 
-		        for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)		    		
+		        for (unsigned int i = 0; i < no_of_boundary_trial_dofs_per_cell; ++i)
                 {
-		        unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
-
-				if (comp_i == 1)
-				{
-				local_bilinear_form_values(k + i*no_of_test_dofs_per_cell) += fe_values_trial_face.shape_value_component(i,quad_point,dim+2)*test_face_value - fe_values_trial_face.shape_value_component(i,quad_point,dim+1)*taudotnormal;
-				}
+				face_values(k + i*no_of_test_dofs_per_cell) += fe_values_trial_face.shape_value_component(i,quad_point,1)*test_face_value - fe_values_trial_face.shape_value_component(i,quad_point,0)*taudotnormal;
                 }
             }
+    }
+    
+    for (unsigned int i = 0; i < no_of_total_trial_dofs_per_cell; ++i)
+    {
+    unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
+    unsigned int basis_i = fe_trial.system_to_base_index(i).second;
+    
+    if (comp_i == 0)
+    {
+        for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
+        {
+        local_bilinear_form_values(k + i*no_of_test_dofs_per_cell) = cell_values(k + basis_i*no_of_test_dofs_per_cell);
+        }
+    }
+    else
+    {
+        for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
+        {
+        local_bilinear_form_values(k + i*no_of_test_dofs_per_cell) = face_values(k + basis_i*no_of_test_dofs_per_cell);
+        }
+    }
     }
 }
 
@@ -383,9 +383,9 @@ local_bilinear_form_values = 0;
 // Takes current cell information and bilinear form values as an input and outputs a vector whose k + i*no_of_test_dofs_per_cell entry corresponds to the weighting of the {psi_k} local basis function in the local basis expansion of the ith test function in the full enriched space V_h.
 
 template <int dim>
-void ConvectionDiffusionDPG<dim>::compute_local_optimal_test_functions (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, const Vector<double> &local_bilinear_form_values, Vector<double> &local_optimal_test_functions)
+void ConvectionDiffusionDPG<dim>::compute_local_optimal_test_functions (const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_test_cell, const Vector<double> &local_bilinear_form_values, Vector<double> &local_optimal_test_functions)
 {
-const unsigned int no_quad_points_cell = fe_values_trial_cell.get_quadrature().size();
+const unsigned int no_quad_points_cell = fe_values_test_cell.get_quadrature().size();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell;
 const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
 
@@ -396,7 +396,7 @@ std::vector<Vector<double> > convection_values (no_quad_points_cell, Vector<doub
 
 Convection<dim>().vector_value_list (fe_values_test_cell.get_quadrature_points(), convection_values);
 
-double vol = trial_cell->measure ();
+double vol = test_cell->measure ();
 
 // Compute the V basis matrix whose (i,j) entry corresponds to the local inner product associated with the norm ||v||^2 + ||div(tau) - b*grad(v)||^2 + ||C_K*tau + sqrt(epsilon)*grad(v)||^2 where C_K := min(1/|K|,1/sqrt(epsilon)).
 // This is an improvement (I think) upon Jesse Chan's proposed norm for Convection-Diffusion problems (see his PhD Thesis). 

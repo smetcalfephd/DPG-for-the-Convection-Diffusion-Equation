@@ -319,7 +319,7 @@ local_bilinear_form_values = 0;
 	        for (unsigned int d = 0; d < dim; ++d)
 		    {
 			values(0) += fe_values_test_cell.shape_grad_component(k,quad_point,d+1)[d];
-			values(d+1) = (1/epsilon)*fe_values_test_cell.shape_value_component(k,quad_point,d+1) + fe_values_test_cell.shape_grad_component(k,quad_point,0)[d];
+			values(d+1) = fe_values_test_cell.shape_value_component(k,quad_point,d+1) + epsilon*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d];
 		    }
 
         values *= fe_values_test_cell.JxW(quad_point);
@@ -335,8 +335,17 @@ local_bilinear_form_values = 0;
 	for (unsigned int face = 0; face < 2*dim; ++face)
     {
 	fe_values_trial_face.reinit(trial_cell, face); fe_values_test_face.reinit(test_cell, face);
+	
+	const std::vector<Tensor<1,dim> > &normals = fe_values_test_face.get_normal_vectors();
 
-    const std::vector<Tensor<1,dim> > &normals = fe_values_test_face.get_normal_vectors();
+    std::vector<unsigned int> index_vector;
+
+	for (unsigned int i = 0; i < no_of_boundary_trial_dofs_per_cell; ++i)
+	{
+	if (fabs(fe_values_trial_face.shape_value_component(i,0,0)) > 1e-16 || fabs(fe_values_trial_face.shape_value_component(i,0,1)) > 1e-16 ) {index_vector.push_back(i);}
+	}
+
+	const unsigned int n = index_vector.size();
 
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_face; ++quad_point)
 		    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
@@ -350,9 +359,9 @@ local_bilinear_form_values = 0;
                 
             taudotnormal *= fe_values_test_face.JxW(quad_point); test_face_value *= std::pow(-1,face+1)*fe_values_test_face.JxW(quad_point);
 
-		        for (unsigned int i = 0; i < no_of_boundary_trial_dofs_per_cell; ++i)
+		        for (unsigned int i = 0; i < n; ++i)
                 {
-				face_values(k + i*no_of_test_dofs_per_cell) += fe_values_trial_face.shape_value_component(i,quad_point,1)*test_face_value - fe_values_trial_face.shape_value_component(i,quad_point,0)*taudotnormal;
+				face_values(k + index_vector[i]*no_of_test_dofs_per_cell) += fe_values_trial_face.shape_value_component(index_vector[i],quad_point,1)*test_face_value - fe_values_trial_face.shape_value_component(index_vector[i],quad_point,0)*taudotnormal;
                 }
             }
     }
@@ -423,7 +432,7 @@ double vol = test_cell->measure ();
 				divtau += fe_values_test_cell.shape_grad_component(k,quad_point,d+1)[d];
 				divsigma += fe_values_test_cell.shape_grad_component(l,quad_point,d+1)[d];
 
-				V_basis_matrix(k,l) += (fmin(1/sqrt(epsilon),1/sqrt(vol))*fe_values_test_cell.shape_value_component(k,quad_point,d+1)+sqrt(epsilon)*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*(fmin(1/sqrt(epsilon),1/sqrt(vol))*fe_values_test_cell.shape_value_component(l,quad_point,d+1)+sqrt(epsilon)*fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
+				V_basis_matrix(k,l) += ((1/epsilon)*fe_values_test_cell.shape_value_component(k,quad_point,d+1)+fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*((1/epsilon)*fe_values_test_cell.shape_value_component(l,quad_point,d+1)+fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
 				}
 
 			V_basis_matrix(k,l) += (divtau - fe_values_test_cell.shape_grad_component(k,quad_point,0)*convection)*(divsigma - fe_values_test_cell.shape_grad_component(l,quad_point,0)*convection)*fe_values_test_cell.JxW(quad_point);
@@ -459,7 +468,7 @@ V_basis_matrix.gauss_jordan (); // Invert the V basis matrix in preparation for 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::run ()
 {
-    GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (5); // Creates the triangulation and globally refines n times.
+    GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (3); // Creates the triangulation and globally refines n times.
     
 	setup_system ();
     assemble_system ();

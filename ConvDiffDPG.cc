@@ -338,30 +338,42 @@ local_bilinear_form_values = 0;
 	
 	const std::vector<Tensor<1,dim> > &normals = fe_values_test_face.get_normal_vectors();
 
-    std::vector<unsigned int> index_vector;
+    std::vector<unsigned int> trial_index, test_index;
 
-	for (unsigned int i = 0; i < no_of_boundary_trial_dofs_per_cell; ++i)
-	{
-	if (fabs(fe_values_trial_face.shape_value_component(i,0,0)) > 1e-16 || fabs(fe_values_trial_face.shape_value_component(i,0,1)) > 1e-16 ) {index_vector.push_back(i);}
-	}
+	    for (unsigned int i = 0; i < no_of_boundary_trial_dofs_per_cell; ++i)
+	    {
+	    if (fabs(fe_values_trial_face.shape_value_component(i,0,0)) > 1e-16 || fabs(fe_values_trial_face.shape_value_component(i,0,1)) > 1e-16) {trial_index.push_back(i);}
+	    }
 
-	const unsigned int n = index_vector.size();
+	    for (unsigned int i = 0; i < no_of_test_dofs_per_cell; ++i)
+	    {
+	    bool index_check = false;
+
+	        for (unsigned int d = 0; d < dim + 1; ++d)
+	        {
+	        if (fabs(fe_values_test_face.shape_value_component(i,0,d)) > 1e-16) {index_check = true;}
+	        }
+
+	    if (index_check == true) {test_index.push_back(i);}
+	    } 
+
+	const unsigned int no_of_trial_dofs_on_face = trial_index.size(); const unsigned int no_of_test_dofs_on_face = test_index.size();
 
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_face; ++quad_point)
-		    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
+		    for (unsigned int k = 0; k < no_of_test_dofs_on_face; ++k)
             {
-            double taudotnormal = 0; double test_face_value = fe_values_test_face.shape_value_component(k,quad_point,0);
+            double taudotnormal = 0; double test_face_value = fe_values_test_face.shape_value_component(test_index[k],quad_point,0);
 
                 for (unsigned int d = 0; d < dim; ++d)
                 {
-                taudotnormal += fe_values_test_face.shape_value_component(k,quad_point,d+1)*normals[quad_point][d];
+                taudotnormal += fe_values_test_face.shape_value_component(test_index[k],quad_point,d+1)*normals[quad_point][d];
                 }
                 
             taudotnormal *= fe_values_test_face.JxW(quad_point); test_face_value *= std::pow(-1,face+1)*fe_values_test_face.JxW(quad_point);
 
-		        for (unsigned int i = 0; i < n; ++i)
+		        for (unsigned int i = 0; i < no_of_trial_dofs_on_face; ++i)
                 {
-				face_values(k + index_vector[i]*no_of_test_dofs_per_cell) += fe_values_trial_face.shape_value_component(index_vector[i],quad_point,1)*test_face_value - fe_values_trial_face.shape_value_component(index_vector[i],quad_point,0)*taudotnormal;
+				face_values(test_index[k] + trial_index[i]*no_of_test_dofs_per_cell) += fe_values_trial_face.shape_value_component(trial_index[i],quad_point,1)*test_face_value - fe_values_trial_face.shape_value_component(trial_index[i],quad_point,0)*taudotnormal;
                 }
             }
     }
@@ -468,7 +480,7 @@ V_basis_matrix.gauss_jordan (); // Invert the V basis matrix in preparation for 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::run ()
 {
-    GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (3); // Creates the triangulation and globally refines n times.
+    GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (5); // Creates the triangulation and globally refines n times.
     
 	setup_system ();
     assemble_system ();

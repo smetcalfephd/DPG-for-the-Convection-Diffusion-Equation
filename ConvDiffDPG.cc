@@ -249,8 +249,7 @@ Convection<dim>().vector_value_list (fe_values_test_cell.get_quadrature_points()
 
 double vol = test_cell->measure ();
 
-// Compute the V basis matrix whose (i,j) entry corresponds to the local inner product associated with the norm ||v||^2 + ||C_K tau||^2 + epsilon*||grad(v)||^2 + ||b*grad(v)||^2 + ||div(tau)-b*grad(v)||^2 where C_K := min{1/sqrt(|K|), 1/sqrt(epsilon)}.
-// See https://repositories.lib.utexas.edu/handle/2152/21417.
+// Compute the V basis matrix whose (i,j) entry corresponds to the local inner product associated with the norm epsilon*||div(tau)-b*grad(v)||^2 + ||tau/sqrt(epsilon) + sqrt(epsilon)*grad(v)||^2 + epsilon*||v||^2 + epsilon*||grad(v)||^2.
 // Note: The proposed test norm is NOT good for the hyperbolic problem (epsilon = 0). This is a possible avenue for future research.
 
     for (unsigned int quad_point = 0; quad_point < no_quad_points_cell; ++quad_point)
@@ -267,7 +266,7 @@ double vol = test_cell->measure ();
         for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
             for (unsigned int l = 0; l < k + 1; ++l)
             {
-            V_basis_matrix(k,l) += (fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.shape_value_component(l,quad_point,0) + epsilon*fe_values_test_cell.shape_grad_component(k,quad_point,0)*fe_values_test_cell.shape_grad_component(l,quad_point,0))*fe_values_test_cell.JxW(quad_point);
+            V_basis_matrix(k,l) += epsilon*(fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.shape_value_component(l,quad_point,0) + fe_values_test_cell.shape_grad_component(k,quad_point,0)*fe_values_test_cell.shape_grad_component(l,quad_point,0))*fe_values_test_cell.JxW(quad_point);
             
 			double divtau = 0; double divsigma = 0;
 
@@ -276,10 +275,10 @@ double vol = test_cell->measure ();
 				divtau += fe_values_test_cell.shape_grad_component(k,quad_point,d+1)[d];
 				divsigma += fe_values_test_cell.shape_grad_component(l,quad_point,d+1)[d];
 
-				V_basis_matrix(k,l) += CsquareK*fe_values_test_cell.shape_value_component(k,quad_point,d+1)*fe_values_test_cell.shape_value_component(l,quad_point,d+1)*fe_values_test_cell.JxW(quad_point);
+				V_basis_matrix(k,l) += ((1/sqrt(epsilon))*fe_values_test_cell.shape_value_component(k,quad_point,d+1)+sqrt(epsilon)*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*((1/sqrt(epsilon))*fe_values_test_cell.shape_value_component(l,quad_point,d+1)+sqrt(epsilon)*fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
 				}
 
-			V_basis_matrix(k,l) += ((fe_values_test_cell.shape_grad_component(k,quad_point,0)*convection)*(fe_values_test_cell.shape_grad_component(l,quad_point,0)*convection) + (divtau - fe_values_test_cell.shape_grad_component(k,quad_point,0)*convection)*(divsigma - fe_values_test_cell.shape_grad_component(l,quad_point,0)*convection))*fe_values_test_cell.JxW(quad_point);
+			V_basis_matrix(k,l) += epsilon*(divtau - fe_values_test_cell.shape_grad_component(k,quad_point,0)*convection)*(divsigma - fe_values_test_cell.shape_grad_component(l,quad_point,0)*convection)*fe_values_test_cell.JxW(quad_point);
             }
     } 
            
@@ -604,7 +603,7 @@ data_out.write_gnuplot (gnuplot_output);
 template <int dim>
 void ConvectionDiffusionDPG<dim>::run ()
 {
-    GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (6); // Creates the triangulation and globally refines n times.
+    GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (4); // Creates the triangulation and globally refines n times.
     
 	setup_system ();
     assemble_system ();

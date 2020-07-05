@@ -87,9 +87,9 @@ public:
   	ConvectionDiffusionDPG ();
     void run ();
     
-    const double epsilon = 1; // Diffusion coefficient.
+    const double epsilon = 0.01; // Diffusion coefficient.
     const unsigned int degree = 3; // Polynomial degree of the trial space.
-	const unsigned int degree_offset = 2; // The amount by which we offset the polynomial degree of the test space.
+	const unsigned int degree_offset = 3; // The amount by which we offset the polynomial degree of the test space.
 	const unsigned int no_of_cycles = 30; // The maximum number of solution cycles.
 	unsigned int cycle = 1; // The current solution cycle.
 
@@ -170,18 +170,12 @@ intermediate_matrix_storage.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_pe
 template <int dim>
 void ConvectionDiffusionDPG<dim>::create_constraints ()
 {
-const unsigned int no_of_trace_trial_dofs = dof_handler_trial_trace.n_dofs();
 const unsigned int no_of_trace_trial_dofs_per_cell = fe_trial_trace.dofs_per_cell;
 
 typename DoFHandler<dim>::active_cell_iterator trial_cell_trace = dof_handler_trial_trace.begin_active(), final_cell = dof_handler_trial_trace.end();
 
-const FEValuesExtractors::Scalar index (0); const ComponentMask comp_mask = fe_trial_trace.component_mask (index);
-std::vector<bool> boundary_dofs (no_of_trace_trial_dofs, false);
-std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
-
-DoFTools::extract_boundary_dofs (dof_handler_trial_trace, comp_mask, boundary_dofs);
-
 ConstraintMatrix temporary_constraints;
+std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
 
 temporary_constraints.clear ();
 DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, temporary_constraints);
@@ -218,8 +212,6 @@ const ConstraintMatrix::LineRange lines = temporary_constraints.get_lines();
 			break;
 			}
 			}    
-        
-		if (boundary_dofs[global_index] == true) {trace_constraints.add_line(global_index);}
 		}
 		}
 	}
@@ -245,6 +237,7 @@ const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+3);
 const QGauss<dim-1>  quadrature_formula_face (degree+degree_offset+3);
 
 const unsigned int no_of_quad_points_cell = quadrature_formula_cell.size(); const unsigned int no_of_quad_points_face = quadrature_formula_face.size();
+const unsigned int no_of_trace_trial_dofs = dof_handler_trial_trace.n_dofs();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell; const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
 const unsigned int no_of_interior_trial_dofs_per_cell = fe_trial_interior.dofs_per_cell; const unsigned int no_of_trace_trial_dofs_per_cell = fe_trial_trace.dofs_per_cell;
 
@@ -272,6 +265,10 @@ std::vector<Vector<double> > previous_convection_values (no_of_quad_points_cell,
 std::vector<double> forcing_values (no_of_quad_points_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial_cell (no_of_interior_trial_dofs_per_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
+std::vector<bool> boundary_dofs (no_of_trace_trial_dofs, false);
+
+const FEValuesExtractors::Scalar index (0); const ComponentMask comp_mask = fe_trial_trace.component_mask (index);
+DoFTools::extract_boundary_dofs (dof_handler_trial_trace, comp_mask, boundary_dofs);
 
 std::vector<unsigned int> additional_data(7); additional_data[0] = no_of_quad_points_cell; additional_data[1] = no_of_quad_points_face; additional_data[2] = no_of_trial_dofs_per_cell;
 additional_data[3] = no_of_test_dofs_per_cell; additional_data[4] = no_of_interior_trial_dofs_per_cell; additional_data[5] = no_of_trace_trial_dofs_per_cell; 
@@ -334,6 +331,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 
 	compute_bilinear_form_values (trial_cell_trace, test_cell, fe_values_trial_cell, fe_values_test_cell, fe_values_trial_face, fe_values_test_face, convection_values, additional_data);
 	compute_local_optimal_test_functions (fe_values_test_cell, convection_values, additional_data, local_optimal_test_functions);
+	}
 
 	local_system_submatrix_00 = 0; local_system_submatrix_01 = 0; local_system_submatrix_10 = 0; local_system_submatrix_11 = 0;
 
@@ -382,16 +380,6 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 			}
 		}
 
-	local_system_submatrix_00.gauss_jordan();
-	local_system_submatrix_10.mmult(intermediate_matrix, local_system_submatrix_00);
-	intermediate_matrix *= -1;
-
-	intermediate_matrix.mmult(local_trace_system_matrix, local_system_submatrix_01);
-	local_trace_system_matrix.add(1, local_system_submatrix_11);
-
-	local_system_submatrix_00.mmult(intermediate_matrix1, local_system_submatrix_01); 
-	}
-
 		// Assemble the local contributions to the system matrix and the right hand side vector.
 		for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 		{
@@ -416,8 +404,48 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 		}
 		}
 
-		intermediate_matrix.vmult(intermediate_vector, local_interior_right_hand_side);
-		local_trace_right_hand_side.add(1, intermediate_vector);
+	if (trial_cell->at_boundary() == true)
+    {
+        for (unsigned int j = 0; j < no_of_trace_trial_dofs_per_cell; ++j)
+        {
+	    const unsigned int comp_j = fe_trial_trace.system_to_base_index(j).first.first;
+
+	    if (comp_j == 0)
+	    {
+	    const unsigned int index = local_dof_indices_trial_trace[j];
+ 
+
+		if (boundary_dofs[index] == true)
+		{
+        
+		    for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
+			{
+			local_system_submatrix_01(i,j) = 0; 
+			local_system_submatrix_10(j,i) = 0;
+			}
+
+			for (unsigned int l = 0; l < no_of_trace_trial_dofs_per_cell; ++l)
+			{
+			local_system_submatrix_11(j,l) = 0; local_system_submatrix_11(l,j) = 0; 
+			}
+		
+		local_system_submatrix_11(j,j) = 1;
+		local_trace_right_hand_side(j) = 0;
+		}
+	    } 
+        }
+    }
+
+	local_system_submatrix_00.gauss_jordan();
+	local_system_submatrix_10.mmult(intermediate_matrix, local_system_submatrix_00);
+	intermediate_matrix *= -1;
+
+	intermediate_matrix.mmult(local_trace_system_matrix, local_system_submatrix_01);
+	local_trace_system_matrix.add(1, local_system_submatrix_11);
+	local_system_submatrix_00.mmult(intermediate_matrix1, local_system_submatrix_01); 
+
+	intermediate_matrix.vmult(intermediate_vector, local_interior_right_hand_side);
+	local_trace_right_hand_side.add(1, intermediate_vector);
 
 	    // Place the local system matrix contributions in the system matrix and the local right hand side contributions in the right hand side vector.
         for (unsigned int i = 0; i < no_of_trace_trial_dofs_per_cell; ++i)
@@ -430,7 +458,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
      	trace_right_hand_side(local_dof_indices_trial_trace[i]) += local_trace_right_hand_side(i);
 	    }
 
-		local_system_submatrix_00.vmult (local_interior_solution, local_interior_right_hand_side);
+	local_system_submatrix_00.vmult (local_interior_solution, local_interior_right_hand_side);
 
 		// Place the local system matrix contributions in the system matrix and the local right hand side contributions in the right hand side vector.
         for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
@@ -452,6 +480,8 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 	local_interior_right_hand_side = 0; local_trace_right_hand_side = 0; previous_cell_no = cell_no; previous_cell_size = cell_size; 
     }
 }
+
+
 
 // Intermediate function needed in assemble_system to assemble the system matrix. 
 // Takes current cell information as an input and outputs a vector whose k + i*no_of_test_dofs_per_cell entry corresponds to B(phi_i, psi_k) where {phi_i} is a local basis for U_h and {psi_k} is a local basis for the the full enriched space V_h.
@@ -570,6 +600,7 @@ const unsigned int index_no_1 = (unsigned int)(0.5*no_of_test_dofs_per_cell*(no_
 const unsigned int index_no_2 = no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*cell_no;
 
 FullMatrix<double> V_basis_matrix (no_of_test_dofs_per_cell, no_of_test_dofs_per_cell);
+FullMatrix<double> V_basis_matrix_inverse (no_of_test_dofs_per_cell, no_of_test_dofs_per_cell);
 Vector<double> U_basis_rhs (no_of_test_dofs_per_cell);
 Vector<double> optimal_test_function (no_of_test_dofs_per_cell);
 
@@ -607,15 +638,17 @@ Vector<double> optimal_test_function (no_of_test_dofs_per_cell);
     for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
         for (unsigned int l = 0; l < k + 1; ++l)
         {
+		V_basis_matrix_inverse(k,l) = V_basis_matrix(k,l);
         V_basis_matrix(l,k) = V_basis_matrix(k,l);
+		V_basis_matrix_inverse(l,k) = V_basis_matrix(k,l);
         }
 
-V_basis_matrix.gauss_jordan(); // Invert the V basis matrix in preparation for finding the optimal test function basis coefficients.
+V_basis_matrix_inverse.gauss_jordan(); // Invert the V basis matrix in preparation for finding the optimal test function basis coefficients.
     
 	for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 	    for (unsigned int l = 0; l < k + 1; ++l)
 		{
-        V_basis_matrix_storage[(unsigned int)(0.5*k*(k+1) + 0.1) + l + index_no_1] = V_basis_matrix(k,l);
+        V_basis_matrix_storage[(unsigned int)(0.5*k*(k+1) + 0.1) + l + index_no_1] = V_basis_matrix_inverse(k,l);
 		}
 
     for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
@@ -628,7 +661,12 @@ V_basis_matrix.gauss_jordan(); // Invert the V basis matrix in preparation for f
         }
 
     // Solve the linear system corresponding to (varphi_{i,k}, psi_k)_V = B(phi_i, psi_k) for varphi_{i,k} where varphi_{i,k} is a vector of unknowns representing the coefficients of the ith local optimal test function in the local basis {psi_k} of the the full enriched space V_h and phi_i is a (fixed) local basis function for U_h.
-    V_basis_matrix.vmult (optimal_test_function, U_basis_rhs); 
+    V_basis_matrix_inverse.vmult (optimal_test_function, U_basis_rhs); 
+
+	SolverControl solver_control (100000, 1e-12, false, false);
+    SolverCG<> solver (solver_control);
+
+	solver.solve (V_basis_matrix, optimal_test_function, U_basis_rhs, PreconditionIdentity());
 
 	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
         {
@@ -644,7 +682,7 @@ V_basis_matrix.gauss_jordan(); // Invert the V basis matrix in preparation for f
 template <int dim>
 void ConvectionDiffusionDPG<dim>::solve ()
 {
-SolverControl solver_control (100000, 1e-13);
+SolverControl solver_control (100000, 1e-10);
 SolverCG<> solver (solver_control);
 
 trace_constraints.condense (trace_system_matrix, trace_right_hand_side);
@@ -729,7 +767,7 @@ typename DoFHandler<dim>::active_cell_iterator trial_cell_interior = dof_handler
 
 FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_values | update_gradients | update_quadrature_points | update_JxW_values);
 
-FullMatrix<double> V_basis_matrix (no_of_test_dofs_per_cell, no_of_test_dofs_per_cell);
+FullMatrix<double> V_basis_matrix_inverse (no_of_test_dofs_per_cell, no_of_test_dofs_per_cell);
 Vector<double> local_residual_coefficients (no_of_test_dofs_per_cell);
 Vector<double> local_right_hand_side (no_of_test_dofs_per_cell);
 std::vector<Vector<double> > convection_values (no_of_quad_points_cell, Vector<double>(dim));
@@ -759,8 +797,8 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 	    {
 	        for (unsigned int l = 0; l < k + 1; ++l)
 		    {
-            V_basis_matrix(k,l) = V_basis_matrix_storage[(unsigned int)(0.5*k*(k+1) + 0.1) + l + index_no_1];
-		    V_basis_matrix(l,k) = V_basis_matrix(k,l);
+            V_basis_matrix_inverse(k,l) = V_basis_matrix_storage[(unsigned int)(0.5*k*(k+1) + 0.1) + l + index_no_1];
+		    V_basis_matrix_inverse(l,k) = V_basis_matrix_inverse(k,l);
 	     	}
         
 		local_right_hand_side(k) = estimator_right_hand_side_storage[k + index_no_2];
@@ -781,7 +819,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 		    }
         }
 
-	V_basis_matrix.vmult (local_residual_coefficients, local_right_hand_side);
+	V_basis_matrix_inverse.vmult (local_residual_coefficients, local_right_hand_side);
 
 	std::fill(v_values.begin(), v_values.end(), 0); std::fill(div_tau_values.begin(), div_tau_values.end(), 0); std::fill(tau_values.begin(), tau_values.end(), 0); std::fill(grad_v_values.begin(), grad_v_values.end(), 0);
 

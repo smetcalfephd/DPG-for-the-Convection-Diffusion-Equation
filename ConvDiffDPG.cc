@@ -190,23 +190,23 @@ const ConstraintMatrix::LineRange lines = temporary_constraints.get_lines();
 	{
 	trial_cell_trace->get_dof_indices (local_dof_indices_trial_trace);
 
-	    for (unsigned int k = 0; k < no_of_trace_trial_dofs_per_cell; ++k)
+	    for (unsigned int i = 0; i < no_of_trace_trial_dofs_per_cell; ++i)
 		{
-		unsigned int comp_k = fe_test.system_to_base_index(k).first.first;
+		unsigned int comp_i = fe_trial_trace.system_to_base_index(i).first.first;
 
-		if (comp_k == 0)
+		if (comp_i == 0)
 		{
-		global_index = local_dof_indices_trial_trace[k];
+		global_index = local_dof_indices_trial_trace[i];
 
-		    for (unsigned int i = 0; i < lines.size(); ++i)
+		    for (unsigned int l = 0; l < lines.size(); ++l)
 			{
-			if (lines[i].index == global_index)
+			if (lines[l].index == global_index)
 			{		
 			trace_constraints.add_line(global_index);
 
-		     	for (unsigned int j = 0; j < lines[i].entries.size(); ++j)
+		     	for (unsigned int e = 0; e < lines[l].entries.size(); ++e)
 	    	    {
-		        trace_constraints.add_entry(global_index, lines[i].entries[j].first, lines[i].entries[j].second);
+		        trace_constraints.add_entry(global_index, lines[l].entries[e].first, lines[l].entries[e].second);
 		        }
 
 			break;

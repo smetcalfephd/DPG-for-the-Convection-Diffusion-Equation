@@ -116,14 +116,12 @@ private:
 
 // The trial space consists of the following (in order): a scalar corresponding to u, a vector corresponding to grad(u), a trace term corresponding to trace(u) and a trace term corresponding to the flux.
 // The test space consists of the following (in order): a scalar test function corresponding to u and a vector test function corresponding to grad(u).
-// IMPORTANT: For dim = 1, FE_DGRaviartThomas<dim>(degree + degree_offset) needs to be replaced by FE_DGQ<dim>(degree + degree_offset) as RT spaces are undefined for dim = 1.
 
 template <int dim>
 ConvectionDiffusionDPG<dim>::ConvectionDiffusionDPG ()
                 :
 				fe_trial_interior (FE_DGQ<dim>(degree), 1, FE_DGQ<dim>(degree), dim), fe_trial_trace (FE_TraceQ<dim>(degree + 1), 1, FE_FaceQ<dim>(degree + 1), 1),
-                fe_trial (fe_trial_interior, 1, fe_trial_trace, 1), fe_test (FE_DGQ<dim>(degree + degree_offset), 1, FE_DGRaviartThomas<dim>(degree + degree_offset), 1), // dim > 1
-				// fe_trial (fe_trial_interior, 1, fe_trial_trace, 1), fe_test (FE_DGQ<dim>(degree + degree_offset), 1, FE_DGQ<dim>(degree + degree_offset), 1), // dim = 1
+                fe_trial (fe_trial_interior, 1, fe_trial_trace, 1), fe_test (FE_DGQ<dim>(degree + degree_offset), 1, FE_DGQ<dim>(degree + degree_offset), dim),
 				dof_handler_trial (triangulation), dof_handler_test (triangulation), dof_handler_trial_interior (triangulation), dof_handler_trial_trace (triangulation)
 
 {}

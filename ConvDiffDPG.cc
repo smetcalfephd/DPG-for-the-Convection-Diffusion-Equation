@@ -18,7 +18,7 @@
 
 using namespace dealii;
 
-// Convection function.
+// Convection function. Use p(0), p(1), p(2) to denote x, y and z.
 
 template <int dim>
 class Convection :  public Function<dim>
@@ -39,13 +39,12 @@ inline
 void Convection<dim>::vector_value (const Point<dim> &p, Vector<double> &values) const
 {
 Assert (values.size() == dim, ExcDimensionMismatch (values.size(), dim));
-// Use p(0), p(1), p(2) to denote x, y and z.
 
 switch(dim)
 {
-case 1: values(0) = 1; break;
-case 2: values(0) = 1; values(1) = 1; break;
-case 3: values(0) = 1; values(1) = 1; values(2) = 1; break;
+case 1: values(0) = p(0)/p(0); break;
+case 2: values(0) = p(0)/p(0); values(1) = p(1)/p(1); break;
+case 3: values(0) = p(0)/p(0); values(1) = p(1)/p(1); values(2) = p(2)/p(2); break;
 }
 }
 
@@ -60,7 +59,7 @@ Assert (value_list.size() == no_of_points, ExcDimensionMismatch (value_list.size
     Convection<dim>::vector_value (points[p], value_list[p]);
 }
 
-// Forcing function.
+// Forcing function. Use points[i](0), points[i](1), points[i](2) to denote x, y and z.
 
 template <int dim>
 class Forcing:  public Function<dim>
@@ -74,10 +73,9 @@ template <int dim>
 void Forcing<dim>::value_list(const std::vector<Point<dim> > &points, std::vector<double> &values, const unsigned int) const
 {
 Assert(values.size() == points.size(), ExcDimensionMismatch(values.size(),points.size()));
-// Use points[i](0), points[i](1), points[i](2) to denote x, y and z.
 
     for (unsigned int i = 0; i < values.size(); ++i)
-    values[i] = 1;
+    values[i] = (points[i](0) + points[i](1) + points[i](2))/(points[i](0) + points[i](1) + points[i](2));
 }
 
 template <int dim>
@@ -94,15 +92,15 @@ public:
 	unsigned int cycle = 1; // The current solution cycle.
 
 private:
-    void setup_system (); // Set up the system.
+    void setup_system (); // Setup the system.
 	void create_constraints (); // Creates the constraints.
 	void assemble_system (); // Assemble the system.
     void compute_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data); // Intermediate function needed in assemble_system to assemble the system matrix.
-    void compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data, std::vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
+    void compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data, const double &tol, std::vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
 	void solve (); // Solve the system. 
 	void output_solution () const; // Output the solution.
 	void compute_error_estimator (); // Computes the error estimator.
-	void refine_grid (); // Refines the triangulation
+	void refine_grid (); // Refines the mesh.
 
     Triangulation<dim> triangulation;
     FESystem<dim> fe_trial_interior, fe_trial_trace, fe_trial, fe_test;
@@ -120,7 +118,6 @@ private:
 // The test space consists of the following (in order): a scalar test function corresponding to u and a vector test function corresponding to grad(u).
 // IMPORTANT: For dim = 1, FE_DGRaviartThomas<dim>(degree + degree_offset) needs to be replaced by FE_DGQ<dim>(degree + degree_offset) as RT spaces are undefined for dim = 1.
 
-
 template <int dim>
 ConvectionDiffusionDPG<dim>::ConvectionDiffusionDPG ()
                 :
@@ -131,7 +128,7 @@ ConvectionDiffusionDPG<dim>::ConvectionDiffusionDPG ()
 
 {}
 
-// Setup the system
+// Setup the system.
 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::setup_system ()
@@ -155,80 +152,45 @@ trace_constraints.condense (trace_dsp);
 trace_sparsity_pattern.copy_from (trace_dsp);
 
 trace_system_matrix.reinit (trace_sparsity_pattern);
-interior_solution.reinit(no_of_interior_trial_dofs);
+interior_solution.reinit (no_of_interior_trial_dofs);
 trace_solution.reinit (no_of_trace_trial_dofs);
 trace_right_hand_side.reinit (no_of_trace_trial_dofs);
-refinement_vector.reinit(no_of_cells);
+refinement_vector.reinit (no_of_cells);
 
-local_optimal_test_functions.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell, 0); std::fill(local_optimal_test_functions.begin(), local_optimal_test_functions.end(), 0);
-bilinear_form_values_storage.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*no_of_cells, 0); std::fill(bilinear_form_values_storage.begin(), bilinear_form_values_storage.end(), 0);
-V_basis_matrix_storage.resize ((unsigned int)(0.5*no_of_test_dofs_per_cell*(no_of_test_dofs_per_cell + 1) + 0.1)*no_of_cells, 0); std::fill(V_basis_matrix_storage.begin(), V_basis_matrix_storage.end(), 0);
-estimator_right_hand_side_storage.resize (no_of_test_dofs_per_cell*no_of_cells, 0); std::fill(estimator_right_hand_side_storage.begin(), estimator_right_hand_side_storage.end(), 0);
-intermediate_matrix_storage.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*no_of_cells, 0); std::fill(intermediate_matrix_storage.begin(), intermediate_matrix_storage.end(), 0);
+local_optimal_test_functions.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell, 0); std::fill (local_optimal_test_functions.begin(), local_optimal_test_functions.end(), 0);
+bilinear_form_values_storage.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*no_of_cells, 0); std::fill (bilinear_form_values_storage.begin(), bilinear_form_values_storage.end(), 0);
+V_basis_matrix_storage.resize ((unsigned int)(0.5*no_of_test_dofs_per_cell*(no_of_test_dofs_per_cell + 1) + 0.1)*no_of_cells, 0); std::fill (V_basis_matrix_storage.begin(), V_basis_matrix_storage.end(), 0);
+estimator_right_hand_side_storage.resize (no_of_test_dofs_per_cell*no_of_cells, 0); std::fill (estimator_right_hand_side_storage.begin(), estimator_right_hand_side_storage.end(), 0);
+intermediate_matrix_storage.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*no_of_cells, 0); std::fill (intermediate_matrix_storage.begin(), intermediate_matrix_storage.end(), 0);
 }
+
+// Creates zero boundary and hanging node constraints.
 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::create_constraints ()
 {
-const unsigned int no_of_trace_trial_dofs_per_cell = fe_trial_trace.dofs_per_cell;
-
-typename DoFHandler<dim>::active_cell_iterator trial_cell_trace = dof_handler_trial_trace.begin_active(), final_cell = dof_handler_trial_trace.end();
-
-ConstraintMatrix temporary_constraints;
-std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
-
-temporary_constraints.clear ();
-DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, temporary_constraints);
-temporary_constraints.close ();
+const FEValuesExtractors::Scalar index (0); const ComponentMask comp_mask = fe_trial_trace.component_mask (index);
 
 trace_constraints.clear ();
-
-unsigned int global_index = 0;
-const ConstraintMatrix::LineRange lines = temporary_constraints.get_lines();
-
-	for (; trial_cell_trace != final_cell; ++trial_cell_trace)
-	{
-	trial_cell_trace->get_dof_indices (local_dof_indices_trial_trace);
-
-	    for (unsigned int i = 0; i < no_of_trace_trial_dofs_per_cell; ++i)
-		{
-		unsigned int comp_i = fe_trial_trace.system_to_base_index(i).first.first;
-
-		if (comp_i == 0)
-		{
-		global_index = local_dof_indices_trial_trace[i];
-
-		    for (unsigned int l = 0; l < lines.size(); ++l)
-			{
-			if (lines[l].index == global_index)
-			{		
-			trace_constraints.add_line(global_index);
-
-		     	for (unsigned int e = 0; e < lines[l].entries.size(); ++e)
-	    	    {
-		        trace_constraints.add_entry(global_index, lines[l].entries[e].first, lines[l].entries[e].second);
-		        }
-
-			break;
-			}
-			}    
-		}
-		}
-	}
-
+DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, trace_constraints); 
+DoFTools::make_zero_boundary_constraints (dof_handler_trial_trace, trace_constraints, comp_mask); // Zero boundary conditions are applied to the variable trace(u) only.
 trace_constraints.close ();
 }
 
 
 // Assemble the system. First note that we are going to use STATIC CONDENSATION to solve the linear system ( S_00  S_01 // S_10  S_11 ) ( U_INT // U_TR ) = ( F_INT // F_TR ) 
 // First we loop over all cells and allocate the values from compute_bilinear_form_values to the correct submatrices. We also compute the right-hand side vectors.
+// Expanding the system of equations implies that
 
-// S_00 * U_INT + S_01 * U_TR = F_INT (1) => U_INT = inv(S_00) * F_INT - inv(S_00) * S_01 * U_TR. 
+// S_00 * U_INT + S_01 * U_TR = F_INT => U_INT = inv(S_00) * F_INT - inv(S_00) * S_01 * U_TR,
 
-// S_10 * U_INT + S_11 * U_TR = F_TR (2) => (S_11 - S_10 * inv(S_00) * S_01) * U_TR = F_TR - S_10 * inv(S_00) * F_INT
+// S_10 * U_INT + S_11 * U_TR = F_TR => (S_11 - S_10 * inv(S_00) * S_01) * U_TR = F_TR - S_10 * inv(S_00) * F_INT.
 
 // Strategy: S_00 can be inverted LOCALLY since it contains no coupling (trace) terms and contains only cell terms. Thus, S_11 - S_10 * inv(S_00) * S_01 and F_TR - S_10 * inv(S_00) * F_INT may all be computed locally as well and then assembed into the global (trace) system matrix.
 // Once U_TR is known from a global solve, U_INT is then recovered from U_INT = inv(S_00) * F_INT - inv(S_00) * S_01 * U_TR. We can preallocate the portion inv(S_00) * F_INT locally as well but we must store the local matrix inv(S_00) * S_01 for each cell until U_TR is known.
+
+// If during assembly the current element K is the same size as the previous element K' AND the convection a|_K is the same as the convection a|_K' then we do not need to recalculate any of the bilinear form values, optimal test functions or local matrices.
+// We therefore check if the convection evaluated at the quadrature points on the current element is the same as on the previous element to within some degree of tolerance and we also check that diam(K) = diam(K'). If both true, we do not recalculate.
 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::assemble_system ()
@@ -237,17 +199,16 @@ const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+3);
 const QGauss<dim-1>  quadrature_formula_face (degree+degree_offset+3);
 
 const unsigned int no_of_quad_points_cell = quadrature_formula_cell.size(); const unsigned int no_of_quad_points_face = quadrature_formula_face.size();
-const unsigned int no_of_trace_trial_dofs = dof_handler_trial_trace.n_dofs();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell; const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
 const unsigned int no_of_interior_trial_dofs_per_cell = fe_trial_interior.dofs_per_cell; const unsigned int no_of_trace_trial_dofs_per_cell = fe_trial_trace.dofs_per_cell;
 
 typename DoFHandler<dim>::active_cell_iterator trial_cell = dof_handler_trial.begin_active(), final_cell = dof_handler_trial.end(); typename DoFHandler<dim>::active_cell_iterator test_cell = dof_handler_test.begin_active();
 typename DoFHandler<dim>::active_cell_iterator trial_cell_interior = dof_handler_trial_interior.begin_active(); typename DoFHandler<dim>::active_cell_iterator trial_cell_trace = dof_handler_trial_trace.begin_active();
 
-FEValues<dim> fe_values_trial_cell (fe_trial_interior, quadrature_formula_cell, update_values | update_quadrature_points | update_JxW_values);
-FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_values | update_gradients | update_quadrature_points | update_JxW_values);
-FEFaceValues<dim> fe_values_trial_face (fe_trial_trace, quadrature_formula_face, update_values | update_quadrature_points | update_JxW_values);
-FEFaceValues<dim> fe_values_test_face (fe_test, quadrature_formula_face, update_values | update_quadrature_points | update_JxW_values | update_normal_vectors);
+FEValues<dim> fe_values_trial_cell (fe_trial_interior, quadrature_formula_cell, update_values | update_quadrature_points);
+FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_values | update_gradients | update_JxW_values);
+FEFaceValues<dim> fe_values_trial_face (fe_trial_trace, quadrature_formula_face, update_values);
+FEFaceValues<dim> fe_values_test_face (fe_test, quadrature_formula_face, update_values | update_JxW_values | update_normal_vectors);
    
 FullMatrix<double> local_trace_system_matrix (no_of_trace_trial_dofs_per_cell, no_of_trace_trial_dofs_per_cell);
 FullMatrix<double> local_system_submatrix_00 (no_of_interior_trial_dofs_per_cell, no_of_interior_trial_dofs_per_cell);
@@ -265,12 +226,8 @@ std::vector<Vector<double> > previous_convection_values (no_of_quad_points_cell,
 std::vector<double> forcing_values (no_of_quad_points_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial_cell (no_of_interior_trial_dofs_per_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
-std::vector<bool> boundary_dofs (no_of_trace_trial_dofs, false);
 
-const FEValuesExtractors::Scalar index (0); const ComponentMask comp_mask = fe_trial_trace.component_mask (index);
-DoFTools::extract_boundary_dofs (dof_handler_trial_trace, comp_mask, boundary_dofs);
-
-std::vector<unsigned int> additional_data(7); additional_data[0] = no_of_quad_points_cell; additional_data[1] = no_of_quad_points_face; additional_data[2] = no_of_trial_dofs_per_cell;
+std::vector<unsigned int> additional_data (7); additional_data[0] = no_of_quad_points_cell; additional_data[1] = no_of_quad_points_face; additional_data[2] = no_of_trial_dofs_per_cell;
 additional_data[3] = no_of_test_dofs_per_cell; additional_data[4] = no_of_interior_trial_dofs_per_cell; additional_data[5] = no_of_trace_trial_dofs_per_cell; 
 
 unsigned int cell_no = 0; unsigned int previous_cell_no = 0; double cell_size = 0; double previous_cell_size = 0; 
@@ -283,8 +240,8 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 
 	trial_cell_interior->get_dof_indices (local_dof_indices_trial_cell); trial_cell_trace->get_dof_indices (local_dof_indices_trial_trace);
 
-	Convection<dim>().vector_value_list (fe_values_test_cell.get_quadrature_points(), convection_values); 
-	Forcing<dim>().value_list (fe_values_test_cell.get_quadrature_points(), forcing_values);
+	Convection<dim>().vector_value_list (fe_values_trial_cell.get_quadrature_points(), convection_values); 
+	Forcing<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), forcing_values);
 
 	cell_no = trial_cell->active_cell_index(); cell_size = trial_cell->diameter();
 	index_no_1 = no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*cell_no;
@@ -330,8 +287,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
     additional_data[6] = cell_no;
 
 	compute_bilinear_form_values (trial_cell_trace, test_cell, fe_values_trial_cell, fe_values_test_cell, fe_values_trial_face, fe_values_test_face, convection_values, additional_data);
-	compute_local_optimal_test_functions (fe_values_test_cell, convection_values, additional_data, local_optimal_test_functions);
-	}
+	compute_local_optimal_test_functions (fe_values_test_cell, convection_values, additional_data, 1e-14, local_optimal_test_functions);
 
 	local_system_submatrix_00 = 0; local_system_submatrix_01 = 0; local_system_submatrix_10 = 0; local_system_submatrix_11 = 0;
 
@@ -376,11 +332,18 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 				local_system_submatrix_11(basis_i,basis_j) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*bilinear_form_values_storage[k + j*no_of_test_dofs_per_cell + index_no_1];
 				}
 			}
-
 			}
 		}
 
-		// Assemble the local contributions to the system matrix and the right hand side vector.
+ 	local_system_submatrix_00.gauss_jordan();
+	local_system_submatrix_10.mmult(intermediate_matrix, local_system_submatrix_00);
+	intermediate_matrix *= -1;
+
+	intermediate_matrix.mmult(local_trace_system_matrix, local_system_submatrix_01);
+	local_trace_system_matrix.add(1, local_system_submatrix_11);
+	local_system_submatrix_00.mmult(intermediate_matrix1, local_system_submatrix_01); 
+	}
+
 		for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 		{
 		unsigned int comp_k = fe_test.system_to_base_index(k).first.first;
@@ -404,46 +367,6 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 		}
 		}
 
-	if (trial_cell->at_boundary() == true)
-    {
-        for (unsigned int j = 0; j < no_of_trace_trial_dofs_per_cell; ++j)
-        {
-	    const unsigned int comp_j = fe_trial_trace.system_to_base_index(j).first.first;
-
-	    if (comp_j == 0)
-	    {
-	    const unsigned int index = local_dof_indices_trial_trace[j];
- 
-
-		if (boundary_dofs[index] == true)
-		{
-        
-		    for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
-			{
-			local_system_submatrix_01(i,j) = 0; 
-			local_system_submatrix_10(j,i) = 0;
-			}
-
-			for (unsigned int l = 0; l < no_of_trace_trial_dofs_per_cell; ++l)
-			{
-			local_system_submatrix_11(j,l) = 0; local_system_submatrix_11(l,j) = 0; 
-			}
-		
-		local_system_submatrix_11(j,j) = 1;
-		local_trace_right_hand_side(j) = 0;
-		}
-	    } 
-        }
-    }
-
-	local_system_submatrix_00.gauss_jordan();
-	local_system_submatrix_10.mmult(intermediate_matrix, local_system_submatrix_00);
-	intermediate_matrix *= -1;
-
-	intermediate_matrix.mmult(local_trace_system_matrix, local_system_submatrix_01);
-	local_trace_system_matrix.add(1, local_system_submatrix_11);
-	local_system_submatrix_00.mmult(intermediate_matrix1, local_system_submatrix_01); 
-
 	intermediate_matrix.vmult(intermediate_vector, local_interior_right_hand_side);
 	local_trace_right_hand_side.add(1, intermediate_vector);
 
@@ -460,7 +383,6 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 
 	local_system_submatrix_00.vmult (local_interior_solution, local_interior_right_hand_side);
 
-		// Place the local system matrix contributions in the system matrix and the local right hand side contributions in the right hand side vector.
         for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
 	    {
      	interior_solution(local_dof_indices_trial_cell[i]) += local_interior_solution(i);
@@ -522,7 +444,7 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
 
 	for (unsigned int face = 0; face < 2*dim; ++face)
     {
-	fe_values_trial_face.reinit(trial_cell, face); fe_values_test_face.reinit(test_cell, face);
+	fe_values_trial_face.reinit (trial_cell, face); fe_values_test_face.reinit (test_cell, face);
 	
 	const std::vector<Tensor<1,dim> > &normals = fe_values_test_face.get_normal_vectors();
 
@@ -590,7 +512,7 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
 // Takes current cell information and bilinear form values as an input and outputs a vector whose k + i*no_of_test_dofs_per_cell entry corresponds to the weighting of the {psi_k} local basis function in the local basis expansion of the ith test function in the full enriched space V_h.
 
 template <int dim>
-void ConvectionDiffusionDPG<dim>::compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data, std::vector<double> &local_optimal_test_functions)
+void ConvectionDiffusionDPG<dim>::compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data, const double &tol, std::vector<double> &local_optimal_test_functions)
 {
 const unsigned int no_of_quad_points_cell = additional_data[0];
 const unsigned int no_of_trial_dofs_per_cell = additional_data[2];
@@ -619,7 +541,7 @@ Vector<double> optimal_test_function (no_of_test_dofs_per_cell);
         for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
             for (unsigned int l = 0; l < k + 1; ++l)
             { 
-            V_basis_matrix(k,l) += (fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.shape_value_component(l,quad_point,0) + fe_values_test_cell.shape_grad_component(k,quad_point,0)*fe_values_test_cell.shape_grad_component(l,quad_point,0))*fe_values_test_cell.JxW(quad_point);
+            V_basis_matrix(k,l) += epsilon*(fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.shape_value_component(l,quad_point,0) + fe_values_test_cell.shape_grad_component(k,quad_point,0)*fe_values_test_cell.shape_grad_component(l,quad_point,0))*fe_values_test_cell.JxW(quad_point);
 
 			double div_tau_k = 0; double div_tau_l = 0;
 
@@ -628,19 +550,18 @@ Vector<double> optimal_test_function (no_of_test_dofs_per_cell);
 				div_tau_k += fe_values_test_cell.shape_grad_component(k,quad_point,d+1)[d];
 				div_tau_l += fe_values_test_cell.shape_grad_component(l,quad_point,d+1)[d];
 
-				V_basis_matrix(k,l) += (1/epsilon)*((1/sqrt(epsilon))*fe_values_test_cell.shape_value_component(k,quad_point,d+1)+sqrt(epsilon)*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*((1/sqrt(epsilon))*fe_values_test_cell.shape_value_component(l,quad_point,d+1)+sqrt(epsilon)*fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
+				V_basis_matrix(k,l) += ((1/sqrt(epsilon))*fe_values_test_cell.shape_value_component(k,quad_point,d+1) + sqrt(epsilon)*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*((1/sqrt(epsilon))*fe_values_test_cell.shape_value_component(l,quad_point,d+1) + sqrt(epsilon)*fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
 				}
 
-			V_basis_matrix(k,l) += (div_tau_k - convection*fe_values_test_cell.shape_grad_component(k,quad_point,0))*(div_tau_l - convection*fe_values_test_cell.shape_grad_component(l,quad_point,0))*fe_values_test_cell.JxW(quad_point);
+			V_basis_matrix(k,l) += epsilon*(div_tau_k - convection*fe_values_test_cell.shape_grad_component(k,quad_point,0))*(div_tau_l - convection*fe_values_test_cell.shape_grad_component(l,quad_point,0))*fe_values_test_cell.JxW(quad_point);
             }
     } 
            
     for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
         for (unsigned int l = 0; l < k + 1; ++l)
         {
-		V_basis_matrix_inverse(k,l) = V_basis_matrix(k,l);
         V_basis_matrix(l,k) = V_basis_matrix(k,l);
-		V_basis_matrix_inverse(l,k) = V_basis_matrix(k,l);
+		V_basis_matrix_inverse(k,l) = V_basis_matrix(k,l); V_basis_matrix_inverse(l,k) = V_basis_matrix(k,l);
         }
 
 V_basis_matrix_inverse.gauss_jordan(); // Invert the V basis matrix in preparation for finding the optimal test function basis coefficients.
@@ -663,7 +584,7 @@ V_basis_matrix_inverse.gauss_jordan(); // Invert the V basis matrix in preparati
     // Solve the linear system corresponding to (varphi_{i,k}, psi_k)_V = B(phi_i, psi_k) for varphi_{i,k} where varphi_{i,k} is a vector of unknowns representing the coefficients of the ith local optimal test function in the local basis {psi_k} of the the full enriched space V_h and phi_i is a (fixed) local basis function for U_h.
     V_basis_matrix_inverse.vmult (optimal_test_function, U_basis_rhs); 
 
-	SolverControl solver_control (100000, 1e-12, false, false);
+	SolverControl solver_control (100000, tol, false, false);
     SolverCG<> solver (solver_control);
 
 	solver.solve (V_basis_matrix, optimal_test_function, U_basis_rhs, PreconditionIdentity());
@@ -677,7 +598,7 @@ V_basis_matrix_inverse.gauss_jordan(); // Invert the V basis matrix in preparati
 
 // Solve the system. 
 // Using a CG solver since DPG yields a symmetric positive definite matrix. TODO: Work on preconditioner.
-
+// Recall from earlier that once we have solved for U_TR, we need to back substitute to solve for U_INT.
 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::solve ()
@@ -687,8 +608,7 @@ SolverCG<> solver (solver_control);
 
 trace_constraints.condense (trace_system_matrix, trace_right_hand_side);
 
-SparseILU<double> ilu;
-ilu.initialize (trace_system_matrix);
+SparseILU<double> ilu; ilu.initialize (trace_system_matrix);
 
 solver.solve (trace_system_matrix, trace_solution, trace_right_hand_side, ilu);
 trace_constraints.distribute (trace_solution);
@@ -702,7 +622,7 @@ typename DoFHandler<dim>::active_cell_iterator trial_cell_trace = dof_handler_tr
 std::vector<types::global_dof_index> local_dof_indices_trial_cell (no_of_interior_trial_dofs_per_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
 
-std::vector<double> local_interior_solution(no_of_interior_trial_dofs_per_cell);
+std::vector<double> local_interior_solution (no_of_interior_trial_dofs_per_cell);
 
     for (; trial_cell != final_cell; ++trial_cell, ++trial_cell_trace)
     {
@@ -712,7 +632,7 @@ std::vector<double> local_interior_solution(no_of_interior_trial_dofs_per_cell);
 	const unsigned int cell_no = trial_cell->active_cell_index();
 	const unsigned int index_no = no_of_interior_trial_dofs_per_cell*no_of_trace_trial_dofs_per_cell*cell_no;
 
-	std::fill(local_interior_solution.begin(), local_interior_solution.end(), 0);
+	std::fill (local_interior_solution.begin(), local_interior_solution.end(), 0);
 
         for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
 		    for (unsigned int j = 0; j < no_of_trace_trial_dofs_per_cell; ++j)
@@ -751,14 +671,15 @@ data_out.write_gnuplot (gnuplot_output);
 }
 
 // Computes the error estimator needed for mesh refinement.
+// We solve the system (res, v_h)_V = F(v_h) - B(u_h, v_h) for res in the enriched test space V_h. Then ||res||_V provides an a posteriori error bound. See DPG literature.
+// NOTE: This system of equations can again be solved locally.
 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::compute_error_estimator ()
 {
-const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+3);
+const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+2);
 
 const unsigned int no_of_quad_points_cell = quadrature_formula_cell.size();
-const unsigned int no_of_cells = triangulation.n_active_cells();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell; const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
 const unsigned int no_of_interior_trial_dofs_per_cell = fe_trial_interior.dofs_per_cell; const unsigned int no_of_trace_trial_dofs_per_cell = fe_trial_trace.dofs_per_cell;
 
@@ -821,7 +742,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 
 	V_basis_matrix_inverse.vmult (local_residual_coefficients, local_right_hand_side);
 
-	std::fill(v_values.begin(), v_values.end(), 0); std::fill(div_tau_values.begin(), div_tau_values.end(), 0); std::fill(tau_values.begin(), tau_values.end(), 0); std::fill(grad_v_values.begin(), grad_v_values.end(), 0);
+	std::fill (v_values.begin(), v_values.end(), 0); std::fill (div_tau_values.begin(), div_tau_values.end(), 0); std::fill (tau_values.begin(), tau_values.end(), 0); std::fill (grad_v_values.begin(), grad_v_values.end(), 0);
 
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 			for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
@@ -860,15 +781,12 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 	        convection[d] = convection_values[quad_point](d);
 	        }
 
-		refinement_vector(cell_no) += (grad_v_values[quad_point]*grad_v_values[quad_point] + (1/epsilon)*(1/epsilon)*tau_values[quad_point]*tau_values[quad_point] + 2*(1/epsilon)*tau_values[quad_point]*grad_v_values[quad_point]
-		                              + (div_tau_values[quad_point]-convection*grad_v_values[quad_point])*(div_tau_values[quad_point]-convection*grad_v_values[quad_point]) 
-									  + v_values[quad_point]*v_values[quad_point] + grad_v_values[quad_point]*grad_v_values[quad_point])*fe_values_test_cell.JxW(quad_point);
+		refinement_vector(cell_no) += (epsilon*grad_v_values[quad_point]*grad_v_values[quad_point] + (1/epsilon)*tau_values[quad_point]*tau_values[quad_point] + 2*tau_values[quad_point]*grad_v_values[quad_point]
+		                              + epsilon*(div_tau_values[quad_point]-convection*grad_v_values[quad_point])*(div_tau_values[quad_point]-convection*grad_v_values[quad_point]) 
+									  + epsilon*v_values[quad_point]*v_values[quad_point] + epsilon*grad_v_values[quad_point]*grad_v_values[quad_point])*fe_values_test_cell.JxW(quad_point);
 		}
-	}
 
-    for (unsigned int cell_no = 0; cell_no < no_of_cells; ++cell_no)
-	{
-	refinement_vector(cell_no) = sqrt(refinement_vector(cell_no));
+    refinement_vector(cell_no) = sqrt(refinement_vector(cell_no));
 	}
 
 std::cout << std::endl;
@@ -879,8 +797,8 @@ std::cout << std::endl;
 template <int dim>
 void ConvectionDiffusionDPG<dim>::refine_grid ()
 {
-GridRefinement::refine_and_coarsen_fixed_number(triangulation, refinement_vector, 0.1, 0.05);
-triangulation.execute_coarsening_and_refinement();
+GridRefinement::refine_and_coarsen_fixed_number (triangulation, refinement_vector, 0.1, 0.05);
+triangulation.execute_coarsening_and_refinement ();
 }
 
 template <int dim>
@@ -892,12 +810,12 @@ void ConvectionDiffusionDPG<dim>::run ()
 	{
 	std::cout << "~~Solution Cycle " << cycle << "~~" << std::endl; std::cout << std::endl;
 
-	if (cycle > 1) {refine_grid ();}
 	setup_system ();
     assemble_system ();
 	solve ();
 	output_solution ();
 	compute_error_estimator ();
+	refine_grid ();
 	}
 	
 }

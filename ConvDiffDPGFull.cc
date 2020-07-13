@@ -1,3 +1,4 @@
+#include <deal.II/base/tensor_function.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_face.h>
@@ -14,45 +15,31 @@
 
 using namespace dealii;
 
-// Convection function. Use p(0), p(1), p(2) to denote x, y and z.
+// Convection function. Use points[point](0), points[point](1), points[point](2) to denote x, y and z.
 
-template <int dim> class Convection : public Function<dim>
+template <int dim> class Convection : public TensorFunction<1, dim>
 {
-public: Convection ();
-
-virtual void vector_value (const Point<dim> &p, Vector<double> &values) const;
-virtual void vector_value_list (const std::vector<Point<dim> > &points, std::vector<Vector<double> > &value_list) const;
+public: Convection () : TensorFunction<1, dim>() {}
+     
+virtual void value_list (const std::vector<Point<dim>> &points, std::vector<Tensor<1, dim>> &values) const override;
 };
 
-template <int dim> Convection<dim>::Convection () : Function<dim> (dim) {}
-
-template <int dim> 
-inline
-void Convection<dim>::vector_value (const Point<dim> &p, Vector<double> &values) const
-{
-Assert (values.size() == dim, ExcDimensionMismatch (values.size(), dim));
-
-switch(dim)
-{
-case 1: values(0) = 1; break;
-case 2: values(0) = 1; values(1) = 1; break;
-case 3: values(0) = 1; values(1) = 1; values(2) = 1; break;
-}
-}
-
-template <int dim> void Convection<dim>::vector_value_list (const std::vector<Point<dim> > &points, std::vector<Vector<double> > &value_list) const
+template <int dim> void Convection<dim>::value_list(const std::vector<Point<dim>> &points, std::vector<Tensor<1, dim>> &values) const
 {
 const unsigned int no_of_points = points.size();
 
-Assert (value_list.size() == no_of_points, ExcDimensionMismatch (value_list.size(), no_of_points));
-
-    for (unsigned int p = 0; p < no_of_points; ++p)
+    for (unsigned int point = 0; point < no_of_points; ++point)
 	{
-    Convection<dim>::vector_value (points[p], value_list[p]);
+    switch(dim)
+    {
+    case 1: values[point][0] = 1; break;
+    case 2: values[point][0] = 1; values[point][1] = 1; break;
+    case 3: values[point][0] = 1; values[point][1] = 1; values[point][2] = 1; break;
+    }
 	}
 }
 
-// Forcing function. Use points[i](0), points[i](1), points[i](2) to denote x, y and z.
+// Forcing function. Use points[point](0), points[point](1), points[point](2) to denote x, y and z.
 
 template <int dim> class Forcing:  public Function<dim>
 {
@@ -63,11 +50,11 @@ virtual void value_list (const std::vector<Point<dim> > &points, std::vector<dou
 template <int dim>
 void Forcing<dim>::value_list (const std::vector<Point<dim> > &points, std::vector<double> &values, const unsigned int) const
 {
-Assert(values.size() == points.size(), ExcDimensionMismatch(values.size(),points.size()));
+const unsigned int no_of_points = points.size();
 
-    for (unsigned int i = 0; i < values.size(); ++i)
+    for (unsigned int point = 0; point < no_of_points; ++point)
 	{
-    values[i] = 1;
+    values[point] = 1;
 	}
 }
 
@@ -88,8 +75,8 @@ private:
     void setup_system (); // Setup the system.
 	void create_constraints (); // Creates the constraints.
 	void assemble_system (); // Assemble the system.
-    void compute_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data); // Intermediate function needed in assemble_system to assemble the system matrix.
-    void compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data, std::vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
+    void compute_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data); // Intermediate function needed in assemble_system to assemble the system matrix.
+    void compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data, std::vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
 	void solve (); // Solve the system. 
 	void output_solution () const; // Output the solution.
 	void compute_error_estimator (); // Computes the error estimator.
@@ -134,7 +121,6 @@ const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
 
 std::cout << "Trial degrees of freedom: " << no_of_trial_dofs << " (" << dof_handler_trial_interior.n_dofs() << " interior, " << dof_handler_trial_trace.n_dofs() << " trace)" << std::endl;
 std::cout << "Test degrees of freedom: " << dof_handler_test.n_dofs() << std::endl;
-std::cout << std::endl;
 
 create_constraints();
 
@@ -192,8 +178,8 @@ FEFaceValues<dim> fe_values_test_face (fe_test, quadrature_formula_face, update_
    
 FullMatrix<double> local_system_matrix (no_of_trial_dofs_per_cell, no_of_trial_dofs_per_cell);
 Vector<double> local_right_hand_side (no_of_trial_dofs_per_cell);
-std::vector<Vector<double> > convection_values (no_of_quad_points_cell, Vector<double>(dim));
-std::vector<Vector<double> > previous_convection_values (no_of_quad_points_cell, Vector<double>(dim));
+std::vector<Tensor<1,dim,double> > convection_values (no_of_quad_points_cell);
+std::vector<Tensor<1,dim,double> > previous_convection_values (no_of_quad_points_cell);
 std::vector<double> forcing_values (no_of_quad_points_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial (no_of_trial_dofs_per_cell);
 
@@ -210,7 +196,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 
 	trial_cell->get_dof_indices (local_dof_indices_trial);
 
-	Convection<dim>().vector_value_list (fe_values_trial_cell.get_quadrature_points(), convection_values); 
+	Convection<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), convection_values); 
 	Forcing<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), forcing_values);
 
 	cell_no = trial_cell->active_cell_index(); cell_size = trial_cell->diameter();
@@ -226,7 +212,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 		    for (unsigned int d = 0; d < dim; ++d)
 		    {
-		    convection_check += (convection_values[quad_point](d) - previous_convection_values[quad_point](d))*(convection_values[quad_point](d) - previous_convection_values[quad_point](d));
+		    convection_check += (convection_values[quad_point][d] - previous_convection_values[quad_point][d])*(convection_values[quad_point][d] - previous_convection_values[quad_point][d]);
 		    }
 
 	convection_check = sqrt(convection_check);
@@ -308,14 +294,12 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
     }
 }
 
-
-
 // Intermediate function needed in assemble_system to assemble the system matrix. 
 // Takes current cell information as an input and outputs a vector whose k + i*no_of_test_dofs_per_cell entry corresponds to B(phi_i, psi_k) where {phi_i} is a local basis for U_h and {psi_k} is a local basis for the the full enriched space V_h.
 // B_K({u,sigma,trace(u),trace(sigma)},{v,tau}) := (u, div(tau) - b*grad(v))_K + (sigma, tau + epsilon*grad(v))_K - (trace(u), tau*n)_dK + (trace(sigma), v)_dK.
 
 template <int dim>
-void ConvectionDiffusionDPG<dim>::compute_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data)
+void ConvectionDiffusionDPG<dim>::compute_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data)
 {
 const unsigned int no_of_quad_points_cell = additional_data[0];
 const unsigned int no_of_quad_points_face = additional_data[1];
@@ -335,7 +319,7 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
 
 	        for (unsigned int d = 0; d < dim; ++d)
 		    {
-			values[0] += (fe_values_test_cell.shape_grad_component(k,quad_point,d+1)[d] - convection_values[quad_point](d)*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
+			values[0] += (fe_values_test_cell.shape_grad_component(k,quad_point,d+1)[d] - convection_values[quad_point][d]*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
 			values[d+1] = (fe_values_test_cell.shape_value_component(k,quad_point,d+1) + epsilon*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
 		    }
 
@@ -346,7 +330,6 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
 				}
         }
  
-
 	for (unsigned int face = 0; face < 2*dim; ++face)
     {
 	fe_values_trial_face.reinit (trial_cell, face); fe_values_test_face.reinit (test_cell, face);
@@ -417,7 +400,7 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
 // Takes current cell information and bilinear form values as an input and outputs a vector whose k + i*no_of_test_dofs_per_cell entry corresponds to the weighting of the {psi_k} local basis function in the local basis expansion of the ith test function in the full enriched space V_h.
 
 template <int dim>
-void ConvectionDiffusionDPG<dim>::compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Vector<double> > &convection_values, const std::vector<unsigned int> &additional_data, std::vector<double> &local_optimal_test_functions)
+void ConvectionDiffusionDPG<dim>::compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data, std::vector<double> &local_optimal_test_functions)
 {
 const unsigned int no_of_quad_points_cell = additional_data[0];
 const unsigned int no_of_trial_dofs_per_cell = additional_data[2];
@@ -442,12 +425,12 @@ Vector<double> optimal_test_function (no_of_test_dofs_per_cell);
 			    for (unsigned int d = 0; d < dim; ++d)
 				{
 				div_tau_k += fe_values_test_cell.shape_grad_component(k,quad_point,d+1)[d]; div_tau_l += fe_values_test_cell.shape_grad_component(l,quad_point,d+1)[d];
-				conv_grad_k += convection_values[quad_point](d)*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d]; conv_grad_l += convection_values[quad_point](d)*fe_values_test_cell.shape_grad_component(l,quad_point,0)[d];
+				conv_grad_k += convection_values[quad_point][d]*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d]; conv_grad_l += convection_values[quad_point][d]*fe_values_test_cell.shape_grad_component(l,quad_point,0)[d];
 
-				V_basis_matrix_inverse(k,l) += ((1/sqrt(epsilon))*fe_values_test_cell.shape_value_component(k,quad_point,d+1) + sqrt(epsilon)*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*((1/sqrt(epsilon))*fe_values_test_cell.shape_value_component(l,quad_point,d+1) + sqrt(epsilon)*fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
+				V_basis_matrix_inverse(k,l) += ((1/epsilon)*fe_values_test_cell.shape_value_component(k,quad_point,d+1) + fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*((1/epsilon)*fe_values_test_cell.shape_value_component(l,quad_point,d+1) + fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
 				}
 
-			V_basis_matrix_inverse(k,l) += epsilon*(fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.shape_value_component(l,quad_point,0) 
+			V_basis_matrix_inverse(k,l) += (fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.shape_value_component(l,quad_point,0) 
 			                               + fe_values_test_cell.shape_grad_component(k,quad_point,0)*fe_values_test_cell.shape_grad_component(l,quad_point,0)
 			                               + (div_tau_k - conv_grad_k)*(div_tau_l - conv_grad_l))*fe_values_test_cell.JxW(quad_point);
             }
@@ -545,7 +528,7 @@ FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_valu
 FullMatrix<double> V_basis_matrix_inverse (no_of_test_dofs_per_cell, no_of_test_dofs_per_cell);
 Vector<double> local_residual_coefficients (no_of_test_dofs_per_cell);
 Vector<double> local_right_hand_side (no_of_test_dofs_per_cell);
-std::vector<Vector<double> > convection_values (no_of_quad_points_cell, Vector<double>(dim));
+std::vector<Tensor<1,dim,double> > convection_values (no_of_quad_points_cell);
 std::vector<double> v_values (no_of_quad_points_cell);
 std::vector<double> div_tau_values (no_of_quad_points_cell);
 std::vector<Tensor<1,dim,double> > tau_values (no_of_quad_points_cell);
@@ -565,7 +548,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 	index_no_2 = no_of_test_dofs_per_cell*cell_no;
 	index_no_3 = no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*cell_no;
 
-	Convection<dim>().vector_value_list (fe_values_test_cell.get_quadrature_points(), convection_values);
+	Convection<dim>().value_list (fe_values_test_cell.get_quadrature_points(), convection_values);
 
 	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 	    {
@@ -617,16 +600,9 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 
 		for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 		{
-		Tensor<1,dim> convection;
-
-	        for (unsigned int d = 0; d < dim; ++d)
-	        {
-	        convection[d] = convection_values[quad_point](d);
-	        }
-
-		refinement_vector(cell_no) += (epsilon*grad_v_values[quad_point]*grad_v_values[quad_point] + (1/epsilon)*tau_values[quad_point]*tau_values[quad_point] + 2*tau_values[quad_point]*grad_v_values[quad_point]
-		                              + epsilon*(div_tau_values[quad_point]-convection*grad_v_values[quad_point])*(div_tau_values[quad_point]-convection*grad_v_values[quad_point]) 
-									  + epsilon*v_values[quad_point]*v_values[quad_point] + epsilon*grad_v_values[quad_point]*grad_v_values[quad_point])*fe_values_test_cell.JxW(quad_point);
+		refinement_vector(cell_no) += (grad_v_values[quad_point]*grad_v_values[quad_point] + (1/epsilon)*(1/epsilon)*tau_values[quad_point]*tau_values[quad_point] + 2*(1/epsilon)*tau_values[quad_point]*grad_v_values[quad_point]
+		                              + (div_tau_values[quad_point] - convection_values[quad_point]*grad_v_values[quad_point])*(div_tau_values[quad_point] - convection_values[quad_point]*grad_v_values[quad_point]) 
+									  + v_values[quad_point]*v_values[quad_point] + grad_v_values[quad_point]*grad_v_values[quad_point])*fe_values_test_cell.JxW(quad_point);
 		}
 
     refinement_vector(cell_no) = sqrt(refinement_vector(cell_no));
@@ -659,43 +635,31 @@ void ConvectionDiffusionDPG<dim>::run ()
 	output_solution ();
 	compute_error_estimator ();
 	refine_grid ();
-	}
-	
+	}	
 }
 
 int main ()
 {
-    deallog.depth_console (2);
-	std::ofstream logfile ("deallog");
-	deallog.attach (logfile);
-	try
-    {
-      ConvectionDiffusionDPG<2> ConvDiffDPG;
-      ConvDiffDPG.run ();
-    }
-  catch (std::exception &exc)
-    {
-      std::cerr << std::endl << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      std::cerr << "Exception on processing: " << std::endl
-                << exc.what() << std::endl
-                << "Aborting!" << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      return 1;
-    }
-  catch (...)
-    {
-      std::cerr << std::endl << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      std::cerr << "Unknown exception!" << std::endl
-                << "Aborting!" << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      return 1;
-    };
+deallog.depth_console (2);
+std::ofstream logfile ("deallog");
+deallog.attach (logfile);
+try
+{
+ConvectionDiffusionDPG<2> ConvDiffDPG;
+ConvDiffDPG.run ();
+}
+catch (std::exception &exc)
+{
+std::cerr << std::endl << std::endl << "----------------------------------------------------" << std::endl;
+std::cerr << "Exception on processing: " << std::endl << exc.what() << std::endl << "Aborting!" << std::endl << "----------------------------------------------------" << std::endl;
+return 1;
+}
+catch (...)
+{
+std::cerr << std::endl << std::endl << "----------------------------------------------------" << std::endl;
+std::cerr << "Unknown exception!" << std::endl << "Aborting!" << std::endl << "----------------------------------------------------" << std::endl;
+return 1;
+};
 
-  return 0;
+return 0;
 }

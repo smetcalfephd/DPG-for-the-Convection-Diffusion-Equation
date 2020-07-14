@@ -45,7 +45,8 @@ template <int dim> class Forcing:  public Function<dim>
 {
 public: Forcing () : Function<dim>() {};
 
-virtual void value_list (const std::vector<Point<dim> > &points, std::vector<double> &values, const unsigned int component = 0) const;};
+virtual void value_list (const std::vector<Point<dim> > &points, std::vector<double> &values, const unsigned int component = 0) const;
+};
 
 template <int dim>
 void Forcing<dim>::value_list (const std::vector<Point<dim> > &points, std::vector<double> &values, const unsigned int) const
@@ -67,7 +68,7 @@ public:
     
     const double epsilon = 0.01; // Diffusion coefficient.
     const unsigned int degree = 3; // Polynomial degree of the trial space.
-	const unsigned int degree_offset = 3; // The amount by which we offset the polynomial degree of the test space.
+	const unsigned int degree_offset = 2; // The amount by which we offset the polynomial degree of the test space.
 	const unsigned int no_of_cycles = 30; // The maximum number of solution cycles.
 	unsigned int cycle = 1; // The current solution cycle.
 
@@ -76,7 +77,7 @@ private:
 	void create_constraints (); // Creates the constraints.
 	void assemble_system (); // Assemble the system.
     void compute_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data); // Intermediate function needed in assemble_system to assemble the system matrix.
-    void compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data, std::vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
+    void compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data, const double &cell_size, std::vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
 	void solve (); // Solve the system. 
 	void output_solution () const; // Output the solution.
 	void compute_error_estimator (); // Computes the error estimator.
@@ -242,7 +243,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
     additional_data[6] = cell_no;
 
 	compute_bilinear_form_values (trial_cell_trace, test_cell, fe_values_trial_cell, fe_values_test_cell, fe_values_trial_face, fe_values_test_face, convection_values, additional_data);
-	compute_local_optimal_test_functions (fe_values_test_cell, convection_values, additional_data, local_optimal_test_functions);
+	compute_local_optimal_test_functions (fe_values_test_cell, convection_values, additional_data, cell_size, local_optimal_test_functions);
 
 	local_system_matrix = 0;
 
@@ -400,7 +401,7 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
 // Takes current cell information and bilinear form values as an input and outputs a vector whose k + i*no_of_test_dofs_per_cell entry corresponds to the weighting of the {psi_k} local basis function in the local basis expansion of the ith test function in the full enriched space V_h.
 
 template <int dim>
-void ConvectionDiffusionDPG<dim>::compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data, std::vector<double> &local_optimal_test_functions)
+void ConvectionDiffusionDPG<dim>::compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data, const double &cell_size, std::vector<double> &local_optimal_test_functions)
 {
 const unsigned int no_of_quad_points_cell = additional_data[0];
 const unsigned int no_of_trial_dofs_per_cell = additional_data[2];
@@ -413,8 +414,10 @@ FullMatrix<double> V_basis_matrix_inverse (no_of_test_dofs_per_cell, no_of_test_
 Vector<double> U_basis_rhs (no_of_test_dofs_per_cell);
 Vector<double> optimal_test_function (no_of_test_dofs_per_cell);
 
-// Compute the V basis matrix whose (i,j) entry corresponds to the local inner product associated with the norm epsilon*||div(tau)-b*grad(v)||^2 + ||tau/sqrt(epsilon) + sqrt(epsilon)*grad(v)||^2 + epsilon*||v||^2 + epsilon*||grad(v)||^2.
+// Compute the V basis matrix whose (i,j) entry corresponds to the local inner product associated with the norm ||div(tau)-b*grad(v)||^2 + ||C_K*(tau/epsilon + grad(v))||^2 + ||v||^2 + ||grad(v)||^2 with C_K = min(sqrt(epsilon/|K|), 1).
 // Note: The proposed test norm is NOT good for the hyperbolic problem (epsilon = 0). This is a possible avenue for future research.
+
+double C_K = fmin(epsilon/cell_size, 1);
 
     for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
         for (unsigned int l = 0; l < k + 1; ++l)
@@ -427,7 +430,7 @@ Vector<double> optimal_test_function (no_of_test_dofs_per_cell);
 				div_tau_k += fe_values_test_cell.shape_grad_component(k,quad_point,d+1)[d]; div_tau_l += fe_values_test_cell.shape_grad_component(l,quad_point,d+1)[d];
 				conv_grad_k += convection_values[quad_point][d]*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d]; conv_grad_l += convection_values[quad_point][d]*fe_values_test_cell.shape_grad_component(l,quad_point,0)[d];
 
-				V_basis_matrix_inverse(k,l) += ((1/epsilon)*fe_values_test_cell.shape_value_component(k,quad_point,d+1) + fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*((1/epsilon)*fe_values_test_cell.shape_value_component(l,quad_point,d+1) + fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
+				V_basis_matrix_inverse(k,l) += C_K*((1/epsilon)*fe_values_test_cell.shape_value_component(k,quad_point,d+1) + fe_values_test_cell.shape_grad_component(k,quad_point,0)[d])*((1/epsilon)*fe_values_test_cell.shape_value_component(l,quad_point,d+1) + fe_values_test_cell.shape_grad_component(l,quad_point,0)[d])*fe_values_test_cell.JxW(quad_point);
 				}
 
 			V_basis_matrix_inverse(k,l) += (fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.shape_value_component(l,quad_point,0) 
@@ -550,6 +553,8 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 
 	Convection<dim>().value_list (fe_values_test_cell.get_quadrature_points(), convection_values);
 
+	double C_K = fmin(epsilon/trial_cell->diameter(), 1);
+
 	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 	    {
 	        for (unsigned int l = 0; l < k + 1; ++l)
@@ -600,7 +605,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 
 		for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 		{
-		refinement_vector(cell_no) += (grad_v_values[quad_point]*grad_v_values[quad_point] + (1/epsilon)*(1/epsilon)*tau_values[quad_point]*tau_values[quad_point] + 2*(1/epsilon)*tau_values[quad_point]*grad_v_values[quad_point]
+		refinement_vector(cell_no) += (C_K*grad_v_values[quad_point]*grad_v_values[quad_point] + C_K*(1/epsilon)*(1/epsilon)*tau_values[quad_point]*tau_values[quad_point] + 2*C_K*(1/epsilon)*tau_values[quad_point]*grad_v_values[quad_point]
 		                              + (div_tau_values[quad_point] - convection_values[quad_point]*grad_v_values[quad_point])*(div_tau_values[quad_point] - convection_values[quad_point]*grad_v_values[quad_point]) 
 									  + v_values[quad_point]*v_values[quad_point] + grad_v_values[quad_point]*grad_v_values[quad_point])*fe_values_test_cell.JxW(quad_point);
 		}
@@ -623,7 +628,7 @@ triangulation.execute_coarsening_and_refinement ();
 template <int dim>
 void ConvectionDiffusionDPG<dim>::run ()
 {
-    GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (2); // Creates the triangulation and globally refines n times.
+GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (2); // Creates the triangulation and globally refines n times.
     
 	for (; cycle < no_of_cycles + 1; ++cycle)
 	{

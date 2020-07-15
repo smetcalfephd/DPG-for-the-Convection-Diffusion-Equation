@@ -788,7 +788,7 @@ std::cout << std::endl;
 template <int dim>
 void ConvectionDiffusionDPG<dim>::refine_grid ()
 {
-GridRefinement::refine_and_coarsen_fixed_number (triangulation, refinement_vector, 0.1, 0.05);
+GridRefinement::refine_and_coarsen_fixed_number (triangulation, refinement_vector, 0.1, 0);
 triangulation.execute_coarsening_and_refinement ();
 }
 

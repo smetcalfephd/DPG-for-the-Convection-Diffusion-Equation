@@ -106,7 +106,9 @@ template <int dim> class ExactSolution:  public Function<dim>
 {
 public: ExactSolution () : Function<dim>() {};
 
-virtual void value_list (const std::vector<Point<dim>> &points,std::vector<double> &values, const unsigned int component = 0) const;};
+virtual void value_list (const std::vector<Point<dim>> &points, std::vector<double> &values, const unsigned int component = 0) const;
+virtual void gradient_list (const std::vector<Point<dim>> &points, std::vector<Tensor<1,dim,double>> &gradients, const unsigned int component = 0) const;
+};
 
 template <int dim>
 void ExactSolution<dim>::value_list (const std::vector<Point<dim>> &points, std::vector<double> &values, const unsigned int) const
@@ -119,12 +121,31 @@ double x = 0; double y = 0; double z = 0;
 	{
     x = points[point][0]; switch(dim) {case 2: y = points[point][1]; break; case 3: y = points[point][1]; z = points[point][2]; break;}
 
-    double psi_x = (exp((x-1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + x - 1; double psi_y = (exp((y-1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + y - 1;
+    double psi_x = (exp((x - 1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + x - 1; double psi_y = (exp((y - 1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + y - 1;
 
 	values[point] = psi_x*psi_y;
 	}
 }
 
+template <int dim>
+void ExactSolution<dim>::gradient_list (const std::vector<Point<dim>> &points, std::vector<Tensor<1,dim,double>> &gradients, const unsigned int) const
+{
+const unsigned int no_of_points = points.size();
+
+double x = 0; double y = 0; double z = 0;
+
+    for (unsigned int point = 0; point < no_of_points; ++point)
+	{
+    x = points[point][0]; switch(dim) {case 2: y = points[point][1]; break; case 3: y = points[point][1]; z = points[point][2]; break;}
+
+    double psi_x = (exp((x - 1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + x - 1; double psi_y = (exp((y - 1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + y - 1;
+	double psi_dif_x = exp((x - 1)/epsilon)/(epsilon*exp(-1/epsilon) - epsilon) + 1; double psi_dif_y = exp((y - 1)/epsilon)/(epsilon*exp(-1/epsilon) - epsilon) + 1;
+
+	gradients[point][0] = psi_dif_x*psi_y;
+	gradients[point][1] = psi_x*psi_dif_y;
+	// gradients[point][2] = 0;
+	}
+}
 
 template <int dim>
 class ConvectionDiffusionDPG
@@ -133,7 +154,6 @@ public:
   	ConvectionDiffusionDPG ();
     void run ();
     
-    // const double epsilon = 0.01; // Diffusion coefficient.
     const unsigned int degree = 3; // Polynomial degree of the trial space.
 	const unsigned int degree_offset = 2; // The amount by which we offset the polynomial degree of the test space.
 	const unsigned int no_of_cycles = 30; // The maximum number of solution cycles.
@@ -148,7 +168,7 @@ private:
 	void solve (); // Solve the system. 
 	void output_solution () const; // Output the solution.
 	void compute_error_estimator (); // Computes the error estimator.
-	void compute_L2_error(); // Computes the L2 error.
+	void compute_errors(); // Computes the L2 error.
 	void refine_grid (); // Refines the mesh.
 
 	Triangulation<dim> triangulation;
@@ -819,9 +839,9 @@ std::cout << "Error Estimator: " << refinement_vector.l2_norm() << std::endl;
 // Computes the L2 error.
 
 template <int dim>
-void ConvectionDiffusionDPG<dim>::compute_L2_error ()
+void ConvectionDiffusionDPG<dim>::compute_errors ()
 {
-const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+4);
+const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+5);
 
 const unsigned int no_of_quad_points_cell = quadrature_formula_cell.size();
 const unsigned int no_of_interior_trial_dofs_per_cell = fe_trial_interior.dofs_per_cell;
@@ -831,9 +851,10 @@ typename DoFHandler<dim>::active_cell_iterator trial_cell_interior = dof_handler
 FEValues<dim> fe_values_trial_cell (fe_trial_interior, quadrature_formula_cell, update_values | update_quadrature_points | update_JxW_values);
 
 std::vector<double> exact_solution_values (no_of_quad_points_cell);
+std::vector<Tensor<1,dim,double>> exact_solution_gradient_values (no_of_quad_points_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial_cell (no_of_interior_trial_dofs_per_cell);
 
-double L2_error = 0;
+double solution_error = 0; double gradient_error = 0;
 
     for (; trial_cell_interior != final_cell; ++trial_cell_interior)
     {
@@ -842,28 +863,35 @@ double L2_error = 0;
     trial_cell_interior->get_dof_indices (local_dof_indices_trial_cell);
     
     ExactSolution<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), exact_solution_values);
+	ExactSolution<dim>().gradient_list (fe_values_trial_cell.get_quadrature_points(), exact_solution_gradient_values);
 
         for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
         {
-        double solution_value = 0;
+        double solution_value = 0; Tensor<1,dim,double> solution_gradient_value;
         
             for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
             {
-            unsigned int comp_i = fe_trial_interior.system_to_base_index(i).first.first;
+            unsigned int comp_i = fe_trial_interior.system_to_component_index(i).first;
             
             if (comp_i == 0)
             {
-            solution_value += interior_solution(local_dof_indices_trial_cell[i])*fe_values_trial_cell.shape_value_component(i,quad_point,0);
+            solution_value += interior_solution(local_dof_indices_trial_cell[i])*fe_values_trial_cell.shape_value(i,quad_point);
             }
+			else
+			{
+			solution_gradient_value[comp_i-1] += interior_solution(local_dof_indices_trial_cell[i])*fe_values_trial_cell.shape_value(i,quad_point);
+			}
             }
-            
-        L2_error += (exact_solution_values[quad_point]-solution_value)*(exact_solution_values[quad_point]-solution_value)*fe_values_trial_cell.JxW(quad_point);
+
+        solution_error += (exact_solution_values[quad_point] - solution_value)*(exact_solution_values[quad_point] - solution_value)*fe_values_trial_cell.JxW(quad_point);
+		for (unsigned int d = 0; d < dim; ++d) {gradient_error += (exact_solution_gradient_values[quad_point][d] - solution_gradient_value[d])*(exact_solution_gradient_values[quad_point][d] - solution_gradient_value[d])*fe_values_trial_cell.JxW(quad_point);}
         }
     }
 
-L2_error = sqrt(L2_error);
+solution_error = sqrt(solution_error); gradient_error = sqrt(gradient_error);
 
-std::cout << "L2 Error: " << L2_error << std::endl;
+std::cout << "L2 Error: " << solution_error << std::endl;
+std::cout << "H1 Error: " << gradient_error << std::endl;
 std::cout << std::endl;
 }
 
@@ -871,7 +899,7 @@ std::cout << std::endl;
 template <int dim>
 void ConvectionDiffusionDPG<dim>::refine_grid ()
 {
-GridRefinement::refine_and_coarsen_fixed_number (triangulation, refinement_vector, 0.1, 0.05);
+GridRefinement::refine_and_coarsen_fixed_number (triangulation, refinement_vector, 0.1, 0);
 triangulation.execute_coarsening_and_refinement ();
 }
 
@@ -889,7 +917,7 @@ GridGenerator::hyper_cube (triangulation, 0, 1); triangulation.refine_global (2)
 	solve ();
 	output_solution ();
 	compute_error_estimator ();
-	compute_L2_error ();
+	compute_errors ();
 	refine_grid ();
 	}	
 }

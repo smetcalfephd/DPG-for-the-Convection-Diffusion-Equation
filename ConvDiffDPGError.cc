@@ -262,7 +262,7 @@ trace_constraints.close ();
 template <int dim>
 void ConvectionDiffusionDPG<dim>::assemble_system ()
 {
-const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+1);
+const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+5);
 const QGauss<dim-1>  quadrature_formula_face (degree+degree_offset);
 
 const unsigned int no_of_quad_points_cell = quadrature_formula_cell.size(); const unsigned int no_of_quad_points_face = quadrature_formula_face.size();

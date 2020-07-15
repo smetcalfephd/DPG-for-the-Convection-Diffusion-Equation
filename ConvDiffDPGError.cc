@@ -14,11 +14,11 @@
 #include <iostream>
 #include <fstream>
 
-double epsilon = 0.01; double pi = 3.14159265358979323846;
+double epsilon = 0.01;
 
 using namespace dealii;
 
-// Convection function. Use points[point][0], points[point][1], points[point][2] to denote x, y, z.
+// Convection function.
 
 template <int dim> class Convection : public TensorFunction<1, dim>
 {
@@ -30,19 +30,23 @@ virtual void value_list (const std::vector<Point<dim>> &points, std::vector<Tens
 template <int dim> void Convection<dim>::value_list (const std::vector<Point<dim>> &points, std::vector<Tensor<1, dim>> &values) const
 {
 const unsigned int no_of_points = points.size();
+// double x = 0; double y = 0; double z = 0;
 
     for (unsigned int point = 0; point < no_of_points; ++point)
 	{
+	// x = points[point][0]; switch(dim) {case 2: y = points[point][1]; break; case 3: y = points[point][1]; z = points[point][2]; break;}
+
+	values[point][0] = 1;
+
     switch(dim)
     {
-    case 1: values[point][0] = 1; break;
-    case 2: values[point][0] = 0; values[point][1] = 1; break;
-    case 3: values[point][0] = 1; values[point][1] = 1; values[point][2] = 1; break;
+    case 2: values[point][1] = 1; break;
+	case 3: values[point][1] = 1; values[point][2] = 1; break;
     }
 	}
 }
 
-// Forcing function. Use points[point][0], points[point][1], points[point][2] to denote x, y, z.
+// Forcing function. 
 
 template <int dim> class Forcing:  public Function<dim>
 {
@@ -56,32 +60,43 @@ void Forcing<dim>::value_list (const std::vector<Point<dim>> &points, std::vecto
 {
 const unsigned int no_of_points = points.size();
 
+double x = 0; double y = 0; double z = 0;
+
     for (unsigned int point = 0; point < no_of_points; ++point)
 	{
-    values[point] = 0;
+    x = points[point][0]; switch(dim) {case 2: y = points[point][1]; break; case 3: y = points[point][1]; z = points[point][2]; break;}
+
+    double psi_x = (exp((x-1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + x - 1; double psi_y = (exp((y-1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + y - 1;
+
+	values[point] = psi_x + psi_y;
 	}
 }
 
-// Dirichlet boundary values function enforcing u = g to be applied to all boundary points with indicator 0. Use point[0], point[1], point[2] to denote x, y, z.
+// Dirichlet boundary values function enforcing u = g to be applied to all boundary points with indicator 0.
 
 template <int dim> class DirichletBoundaryValues : public Function<dim>
 {
 public: virtual double value (const Point<dim> &point, const unsigned int) const override
 {
-if (point[0] == 0 || point[0] == 1 || point[1] == 0)
-{return 0;}
-else
-{return 1;}
+// double x = 0; double y = 0; double z = 0;
+
+// x = point[0]; switch(dim) {case 2: y = point[1]; break; case 3: y = point[1]; z = point[2]; break;}
+
+return 0;
 }
 };
 
-// Robin boundary values function enforcing (b*u - epsilon*grad(u))*n = g to be applied to all boundary points with indicator 1. Use point[0], point[1], point[2] to denote x, y, z.
+// Robin boundary values function enforcing (b*u - epsilon*grad(u))*n = g to be applied to all boundary points with indicator 1.
 
 template <int dim> class RobinBoundaryValues : public Function<dim>
 {
 public: virtual double value (const Point<dim> &point, const unsigned int) const override
 {
-return point[0]-point[0];
+// double x = 0; double y = 0; double z = 0;
+
+// x = point[0]; switch(dim) {case 2: y = point[1]; break; case 3: y = point[1]; z = point[2]; break;}
+
+return 0;
 }
 };
 
@@ -91,29 +106,22 @@ template <int dim> class ExactSolution:  public Function<dim>
 {
 public: ExactSolution () : Function<dim>() {};
 
-virtual void value_list (const std::vector<Point<dim> > &points,std::vector<double> &values, const unsigned int component = 0) const;};
+virtual void value_list (const std::vector<Point<dim>> &points,std::vector<double> &values, const unsigned int component = 0) const;};
 
 template <int dim>
-void ExactSolution<dim>::value_list (const std::vector<Point<dim> > &points, std::vector<double> &values, const unsigned int) const
+void ExactSolution<dim>::value_list (const std::vector<Point<dim>> &points, std::vector<double> &values, const unsigned int) const
 {
 const unsigned int no_of_points = points.size();
 
+double x = 0; double y = 0; double z = 0;
+
     for (unsigned int point = 0; point < no_of_points; ++point)
 	{
-    values[point] = 0;
-	}
+    x = points[point][0]; switch(dim) {case 2: y = points[point][1]; break; case 3: y = points[point][1]; z = points[point][2]; break;}
 
-	for (unsigned int k = 1; k < 100; ++k)
-	{
-	double alphan = 0; double term = 0;
-	
-	term = (2*k - 1)*(2*k - 1)*pi*pi + 1/(4*epsilon*epsilon); term = sqrt(term);
-    alphan = 4/((2*k - 1)*pi*exp(1/(2*epsilon))*(exp(term) - exp(-term)));
+    double psi_x = (exp((x-1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + x - 1; double psi_y = (exp((y-1)/epsilon) - 1)/(exp(-1/epsilon) - 1) + y - 1;
 
-	    for (unsigned int point = 0; point < no_of_points; ++point)
-	    {
-		values[point] += alphan*sin( (2*k - 1)*pi*points[point][0]  )*( exp( points[point][1]*(1/(2*epsilon) + term ) ) - exp( points[point][1]*(1/(2*epsilon) - term ) )   );
-		}
+	values[point] = psi_x*psi_y;
 	}
 }
 

@@ -9,13 +9,14 @@
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/sparse_direct.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/vector_tools.h>
 
 #include <iostream>
 #include <fstream>
 
 using namespace dealii;
 
-// Convection function. Use points[point](0), points[point](1), points[point](2) to denote x, y and z.
+// Convection function. Use points[point][0], points[point][1], points[point][2] to denote x, y, z.
 
 template <int dim> class Convection : public TensorFunction<1, dim>
 {
@@ -24,7 +25,7 @@ public: Convection () : TensorFunction<1, dim>() {}
 virtual void value_list (const std::vector<Point<dim>> &points, std::vector<Tensor<1, dim>> &values) const override;
 };
 
-template <int dim> void Convection<dim>::value_list(const std::vector<Point<dim>> &points, std::vector<Tensor<1, dim>> &values) const
+template <int dim> void Convection<dim>::value_list (const std::vector<Point<dim>> &points, std::vector<Tensor<1, dim>> &values) const
 {
 const unsigned int no_of_points = points.size();
 
@@ -39,17 +40,17 @@ const unsigned int no_of_points = points.size();
 	}
 }
 
-// Forcing function. Use points[point](0), points[point](1), points[point](2) to denote x, y and z.
+// Forcing function. Use points[point][0], points[point][1], points[point][2] to denote x, y, z.
 
 template <int dim> class Forcing:  public Function<dim>
 {
 public: Forcing () : Function<dim>() {};
 
-virtual void value_list (const std::vector<Point<dim> > &points, std::vector<double> &values, const unsigned int component = 0) const;
+virtual void value_list (const std::vector<Point<dim>> &points, std::vector<double> &values, const unsigned int component = 0) const;
 };
 
 template <int dim>
-void Forcing<dim>::value_list (const std::vector<Point<dim> > &points, std::vector<double> &values, const unsigned int) const
+void Forcing<dim>::value_list (const std::vector<Point<dim>> &points, std::vector<double> &values, const unsigned int) const
 {
 const unsigned int no_of_points = points.size();
 
@@ -58,6 +59,26 @@ const unsigned int no_of_points = points.size();
     values[point] = 1;
 	}
 }
+
+// Dirichlet boundary values function enforcing u = g to be applied to all boundary points with indicator 0. Use point[0], point[1], point[2] to denote x, y, z.
+
+template <int dim> class DirichletBoundaryValues : public Function<dim>
+{
+public: virtual double value (const Point<dim> &point, const unsigned int) const override
+{
+return point[0]-point[0];
+}
+};
+
+// Robin boundary values function enforcing (b*u - epsilon*grad(u))*n = g to be applied to all boundary points with indicator 1. Use point[0], point[1], point[2] to denote x, y, z.
+
+template <int dim> class RobinBoundaryValues : public Function<dim>
+{
+public: virtual double value (const Point<dim> &point, const unsigned int) const override
+{
+return point[0]-point[0];
+}
+};
 
 template <int dim>
 class ConvectionDiffusionDPG
@@ -71,19 +92,19 @@ public:
 	const unsigned int degree_offset = 2; // The amount by which we offset the polynomial degree of the test space.
 	const unsigned int no_of_cycles = 30; // The maximum number of solution cycles.
 	unsigned int cycle = 1; // The current solution cycle.
-
+    
 private:
-    void setup_system (); // Setup the system.
+    void setup_system (); // Set up the system.
 	void create_constraints (); // Creates the constraints.
 	void assemble_system (); // Assemble the system.
-    void compute_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data); // Intermediate function needed in assemble_system to assemble the system matrix.
+	void compute_bilinear_form_values (const typename DoFHandler<dim>::active_cell_iterator &trial_cell, const typename DoFHandler<dim>::active_cell_iterator &test_cell, const FEValues<dim> &fe_values_trial_cell, const FEValues<dim> &fe_values_test_cell, FEFaceValues<dim> &fe_values_trial_face, FEFaceValues<dim> &fe_values_test_face, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data); // Intermediate function needed in assemble_system to assemble the system matrix.
     void compute_local_optimal_test_functions (const FEValues<dim> &fe_values_test_cell, const std::vector<Tensor<1,dim> > &convection_values, const std::vector<unsigned int> &additional_data, const double &cell_size, std::vector<double> &local_optimal_test_functions); // Intermediate function needed in assemble_system to compute the optimal test functions. 
 	void solve (); // Solve the system. 
 	void output_solution () const; // Output the solution.
 	void compute_error_estimator (); // Computes the error estimator.
 	void refine_grid (); // Refines the mesh.
 
-    Triangulation<dim> triangulation;
+	Triangulation<dim> triangulation;
     FESystem<dim> fe_trial_interior, fe_trial_trace, fe_trial, fe_test;
 	DoFHandler<dim> dof_handler_trial, dof_handler_test, dof_handler_trial_interior, dof_handler_trial_trace;
 
@@ -142,16 +163,18 @@ estimator_right_hand_side_storage.resize (no_of_test_dofs_per_cell*no_of_cells, 
 intermediate_matrix_storage.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*no_of_cells, 0); std::fill (intermediate_matrix_storage.begin(), intermediate_matrix_storage.end(), 0);
 }
 
-// Creates zero boundary and hanging node constraints.
+// Creates boundary and hanging node constraints.
 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::create_constraints ()
 {
-const FEValuesExtractors::Scalar index (0); const ComponentMask comp_mask = fe_trial_trace.component_mask (index);
+const FEValuesExtractors::Scalar dirichlet_index (0); const ComponentMask dirichlet_comp_mask = fe_trial_trace.component_mask (dirichlet_index);
+const FEValuesExtractors::Scalar robin_index (1); const ComponentMask robin_comp_mask = fe_trial_trace.component_mask (robin_index);
 
 trace_constraints.clear ();
-DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, trace_constraints); 
-DoFTools::make_zero_boundary_constraints (dof_handler_trial_trace, trace_constraints, comp_mask); // Zero boundary conditions are applied to the variable trace(u) only.
+DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, trace_constraints); // Hanging node constraints.
+VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 0, DirichletBoundaryValues<dim>(), trace_constraints, dirichlet_comp_mask); // Dirichlet boundary constraints.
+VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 1, RobinBoundaryValues<dim>(), trace_constraints, robin_comp_mask); // Robin boundary constraints.
 trace_constraints.close ();
 }
 
@@ -757,7 +780,7 @@ triangulation.execute_coarsening_and_refinement ();
 template <int dim>
 void ConvectionDiffusionDPG<dim>::run ()
 {
-GridGenerator::hyper_cube (triangulation, -1, 1, true); triangulation.refine_global (2); // Creates the triangulation and globally refines n times.
+GridGenerator::hyper_cube (triangulation, -1, 1); triangulation.refine_global (2); // Creates the triangulation and globally refines n times.
     
 	for (; cycle < no_of_cycles + 1; ++cycle)
 	{

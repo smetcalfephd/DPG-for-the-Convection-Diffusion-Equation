@@ -105,7 +105,7 @@ public:
     const double epsilon = 0.01; // Diffusion coefficient.
     const unsigned int degree = 3; // Polynomial degree of the trial space.
 	const unsigned int degree_offset = 2; // The amount by which we offset the polynomial degree of the test space.
-	const unsigned int no_of_cycles = 30; // The maximum number of solution cycles.
+	const unsigned int no_of_cycles = 35; // The maximum number of solution cycles.
 	unsigned int cycle = 1; // The current solution cycle.
     
 private:

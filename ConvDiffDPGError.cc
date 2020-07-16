@@ -888,7 +888,7 @@ double solution_error = 0; double gradient_error = 0;
         }
     }
 
-solution_error = sqrt(solution_error); gradient_error = sqrt(gradient_error);
+solution_error = sqrt(solution_error); gradient_error = sqrt(gradient_error); gradient_error *= epsilon;
 
 std::cout << "L2 Error: " << solution_error << std::endl;
 std::cout << "H1 Error: " << gradient_error << std::endl;

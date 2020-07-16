@@ -205,7 +205,7 @@ trace_constraints.close ();
 // Once U_TR is known from a global solve, U_INT is then recovered from U_INT = inv(S_00) * F_INT - inv(S_00) * S_01 * U_TR. We can preallocate the portion inv(S_00) * F_INT locally as well but we must store the local matrix inv(S_00) * S_01 for each cell until U_TR is known.
 
 // If during assembly the current element K is the same size as the previous element K' AND the convection a|_K is the same as the convection a|_K' then we do not need to recalculate any of the bilinear form values, optimal test functions or local matrices.
-// We therefore check if the convection evaluated at the quadrature points on the current element is the same as on the previous element to within some degree of tolerance and we also check that diam(K) = diam(K'). If both true, we do not recalculate.
+// We therefore check if the convection evaluated at the quadrature points on the current element is the same as on the previous element to within some degree of tolerance and we also check that measure(K) = measure(K'). If both true, we do not recalculate.
 
 template <int dim>
 void ConvectionDiffusionDPG<dim>::assemble_system ()
@@ -258,7 +258,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 	Convection<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), convection_values); 
 	Forcing<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), forcing_values);
 
-	cell_no = trial_cell->active_cell_index(); cell_size = trial_cell->diameter();
+	cell_no = trial_cell->active_cell_index(); cell_size = trial_cell->measure();
 	index_no_1 = no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*cell_no;
 	index_no_2 = no_of_test_dofs_per_cell*cell_no;
 	index_no_3 = no_of_interior_trial_dofs_per_cell*no_of_trace_trial_dofs_per_cell*cell_no;
@@ -710,7 +710,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 
 	Convection<dim>().value_list (fe_values_test_cell.get_quadrature_points(), convection_values);
 
-	double C_K = fmin(epsilon/trial_cell_interior->diameter(), 1);
+	double C_K = fmin(epsilon/trial_cell_interior->measure(), 1);
 
 	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 	    {

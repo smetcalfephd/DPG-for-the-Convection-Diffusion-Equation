@@ -187,9 +187,9 @@ const FEValuesExtractors::Scalar dirichlet_index (0); const ComponentMask dirich
 const FEValuesExtractors::Scalar robin_index (1); const ComponentMask robin_comp_mask = fe_trial_trace.component_mask (robin_index);
 
 trace_constraints.clear ();
-DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, trace_constraints); // Hanging node constraints.
 VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 0, DirichletBoundaryValues<dim>(), trace_constraints, dirichlet_comp_mask); // Dirichlet boundary constraints.
 VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 1, RobinBoundaryValues<dim>(), trace_constraints, robin_comp_mask); // Robin boundary constraints.
+DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, trace_constraints); // Hanging node constraints.
 trace_constraints.close ();
 }
 

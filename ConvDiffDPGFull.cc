@@ -1,4 +1,4 @@
-#include <deal.II/base/tensor_function.h>
+﻿#include <deal.II/base/tensor_function.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_face.h>
@@ -103,7 +103,7 @@ public:
     void run ();
     
     const double epsilon = 0.01; // Diffusion coefficient.
-    const unsigned int degree = 3; // Polynomial degree of the trial space.
+    const unsigned int degree = 1; // Polynomial degree of the trial space.
 	const unsigned int degree_offset = 2; // The amount by which we offset the polynomial degree of the test space.
 	const unsigned int no_of_cycles = 35; // The maximum number of solution cycles.
 	unsigned int cycle = 1; // The current solution cycle.
@@ -137,7 +137,7 @@ private:
 template <int dim>
 ConvectionDiffusionDPG<dim>::ConvectionDiffusionDPG ()
                 :
-				fe_trial_interior (FE_DGQ<dim>(degree), 1, FE_DGQ<dim>(degree), dim), fe_trial_trace (FE_TraceQ<dim>(degree + 1), 1, FE_FaceQ<dim>(degree + 1), 1),
+				fe_trial_interior (FE_DGQ<dim>(degree), 1, FE_DGQ<dim>(degree), dim), fe_trial_trace (FE_TraceQ<dim>(degree), 1, FE_FaceQ<dim>(degree - 1), 1),
                 fe_trial (fe_trial_interior, 1, fe_trial_trace, 1), fe_test (FE_DGQ<dim>(degree + degree_offset), 1, FE_DGQ<dim>(degree + degree_offset), dim),
 				dof_handler_trial (triangulation), dof_handler_test (triangulation), dof_handler_trial_interior (triangulation), dof_handler_trial_trace (triangulation)
 

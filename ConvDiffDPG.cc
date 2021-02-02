@@ -405,18 +405,14 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
     std::vector<unsigned int> trial_index, test_index;
 
 	    for (unsigned int i = 0; i < no_of_trace_trial_dofs_per_cell; ++i)
-//	    {
 	    if (fabs(fe_values_trial_face.shape_value_component(i,0,0)) > 1e-14 || fabs(fe_values_trial_face.shape_value_component(i,0,1)) > 1e-14) {trial_index.push_back(i);}
-//	    }
 
 	    for (unsigned int i = 0; i < no_of_test_dofs_per_cell; ++i)
 	    {
 	    bool index_check = false;
 
 	        for (unsigned int d = 0; d < dim + 1; ++d)
-//	        {
 	        if (fabs(fe_values_test_face.shape_value_component(i,0,d)) > 1e-14) {index_check = true;}
-//	        }
 
 	    if (index_check == true) {test_index.push_back(i);}
 	    } 
@@ -429,14 +425,10 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
             double taudotnormal = 0;  double test_face_value = std::pow(-1,face+1)*fe_values_test_face.shape_value_component(test_index[k],quad_point,0)*fe_values_test_face.JxW(quad_point); 
 
                 for (unsigned int d = 0; d < dim; ++d)
-                {
 				taudotnormal += fe_values_test_face.shape_value_component(test_index[k],quad_point,d+1)*normals[quad_point][d]*fe_values_test_face.JxW(quad_point);
-                }
 
 		        for (unsigned int i = 0; i < no_of_trial_dofs_on_face; ++i)
-                {
 				face_values[test_index[k] + trial_index[i]*no_of_test_dofs_per_cell] += fe_values_trial_face.shape_value_component(trial_index[i],quad_point,1)*test_face_value - fe_values_trial_face.shape_value_component(trial_index[i],quad_point,0)*taudotnormal;
-                }
             }
     }
     
@@ -445,20 +437,11 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
     unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
     unsigned int basis_i = fe_trial.system_to_base_index(i).second;
 
-    if (comp_i == 0)
-    {
-        for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
-        {
-		bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no] = cell_values[k + basis_i*no_of_test_dofs_per_cell];
-        }
-    }
-    else
-    {
-        for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
-        {
-		bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no] = face_values[k + basis_i*no_of_test_dofs_per_cell];
-        }
-    }
+	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
+		{
+		if (comp_i == 0) {bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no] = cell_values[k + basis_i*no_of_test_dofs_per_cell];}
+		else {bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no] = face_values[k + basis_i*no_of_test_dofs_per_cell];}
+		}
     }
 }
 
@@ -504,34 +487,26 @@ double C_K = fmin(epsilon/cell_size, 1);
            
     for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
         for (unsigned int l = 0; l < k + 1; ++l)
-        {
         V_basis_matrix_inverse(l,k) = V_basis_matrix_inverse(k,l);
-        }
 
 V_basis_matrix_inverse.gauss_jordan(); // Invert the V basis matrix in preparation for finding the optimal test function basis coefficients.
     
 	for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 	    for (unsigned int l = 0; l < k + 1; ++l)
-		{
         V_basis_matrix_inverse_storage[(unsigned int)(0.5*k*(k+1) + 0.1) + l + index_no_1] = V_basis_matrix_inverse(k,l);
-		}
 
     for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
     {  	
 	// Set the right hand side whose kth entry is B(phi_i, psi_k) where {phi_i} is a local basis for U_h and {psi_k} is a local basis for the the full enriched space V_h.
 
         for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
-        {
 		U_basis_rhs(k) = bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_2];
-        }
 
     // Solve the linear system corresponding to (varphi_{i,k}, psi_k)_V = B(phi_i, psi_k) for varphi_{i,k} where varphi_{i,k} is a vector of unknowns representing the coefficients of the ith local optimal test function in the local basis {psi_k} of the the full enriched space V_h and phi_i is a (fixed) local basis function for U_h.
     V_basis_matrix_inverse.vmult (optimal_test_function, U_basis_rhs); 
 
 	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
-        {
         local_optimal_test_functions[k + i*no_of_test_dofs_per_cell] = optimal_test_function(k); 
-        }
     }
 }
 
@@ -571,14 +546,10 @@ std::vector<double> local_interior_solution (no_of_interior_trial_dofs_per_cell)
 
         for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
 		    for (unsigned int j = 0; j < no_of_trace_trial_dofs_per_cell; ++j)
-		    {
 			local_interior_solution[i] += intermediate_matrix_storage[i + j*no_of_interior_trial_dofs_per_cell + index_no]*trace_solution(local_dof_indices_trial_trace[j]);
-		    }
 
         for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
-		{
 		interior_solution(local_dof_indices_trial_cell[i]) -= local_interior_solution[i];
-		}
 	}
 }
 
@@ -588,10 +559,12 @@ std::vector<double> local_interior_solution (no_of_interior_trial_dofs_per_cell)
 template <int dim> void ConvectionDiffusionDPG<dim>::output_solution () const
 {
 std::vector<std::string> solution_names (1, "solution");
-for (unsigned int d = 0; d < dim; ++d) {solution_names.push_back ("gradient");}
+
+    for (unsigned int d = 0; d < dim; ++d) {solution_names.push_back ("gradient");}
 
 std::vector<DataComponentInterpretation::DataComponentInterpretation> data_component_interpretation (1, DataComponentInterpretation::component_is_scalar);
-for (unsigned int d = 0; d < dim; ++d) {data_component_interpretation.push_back (DataComponentInterpretation::component_is_part_of_vector);}
+
+    for (unsigned int d = 0; d < dim; ++d) {data_component_interpretation.push_back (DataComponentInterpretation::component_is_part_of_vector);}
 
 DataOut<dim> data_out;
 data_out.attach_dof_handler (dof_handler_trial_interior);
@@ -664,14 +637,8 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 			unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
             unsigned int basis_i = fe_trial.system_to_base_index(i).second;
 
-			if (comp_i == 0)
-			{
-			local_right_hand_side(k) -= interior_solution(local_dof_indices_trial_cell[basis_i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];
-			}
-			else
-			{
-			local_right_hand_side(k) -= trace_solution(local_dof_indices_trial_trace[basis_i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];
-			}
+			if (comp_i == 0) {local_right_hand_side(k) -= interior_solution(local_dof_indices_trial_cell[basis_i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];}
+			else {local_right_hand_side(k) -= trace_solution(local_dof_indices_trial_trace[basis_i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];}
 		    }
         }
 
@@ -687,9 +654,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 			if (comp_k == 0)
 			{
 			    for (unsigned int d = 0; d < dim; ++d)
-				{
 				grad_v_values[quad_point][d] += local_residual_coefficients(k)*fe_values_test_cell.shape_grad_component(k,quad_point,0)[d];
-				}
             
 			v_values[quad_point] += local_residual_coefficients(k)*fe_values_test_cell.shape_value_component(k,quad_point,0);
 			}

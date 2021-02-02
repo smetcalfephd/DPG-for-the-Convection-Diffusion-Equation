@@ -284,13 +284,11 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 
 	    for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
 		{
-		const unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
-		const unsigned int basis_i = fe_trial.system_to_base_index(i).second;
+		const unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; const unsigned int basis_i = fe_trial.system_to_base_index(i).second;
 
 	        for (unsigned int j = 0; j < no_of_trial_dofs_per_cell; ++j)
 			{
-			const unsigned int comp_j = fe_trial.system_to_base_index(j).first.first;
-		    const unsigned int basis_j = fe_trial.system_to_base_index(j).second;
+			const unsigned int comp_j = fe_trial.system_to_base_index(j).first.first; const unsigned int basis_j = fe_trial.system_to_base_index(j).second;
 
 			    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 				{
@@ -325,8 +323,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 
 				for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
 	            {
-				unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
-		        unsigned int basis_i = fe_trial.system_to_base_index(i).second;
+				unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; unsigned int basis_i = fe_trial.system_to_base_index(i).second;
 
 				if (comp_i == 0) {local_interior_right_hand_side(basis_i) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*test_cell_value;} else {local_trace_right_hand_side(basis_i) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*test_cell_value;}
 			    }
@@ -422,7 +419,7 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_face; ++quad_point)
 		    for (unsigned int k = 0; k < no_of_test_dofs_on_face; ++k)
             {
-            double taudotnormal = 0;  double test_face_value = std::pow(-1,face+1)*fe_values_test_face.shape_value_component(test_index[k],quad_point,0)*fe_values_test_face.JxW(quad_point); 
+            double taudotnormal = 0; double test_face_value = std::pow(-1,face+1)*fe_values_test_face.shape_value_component(test_index[k],quad_point,0)*fe_values_test_face.JxW(quad_point); 
 
                 for (unsigned int d = 0; d < dim; ++d)
 				taudotnormal += fe_values_test_face.shape_value_component(test_index[k],quad_point,d+1)*normals[quad_point][d]*fe_values_test_face.JxW(quad_point);
@@ -434,8 +431,7 @@ std::vector<double> face_values (no_of_trace_trial_dofs_per_cell*no_of_test_dofs
     
     for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
     {
-    unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
-    unsigned int basis_i = fe_trial.system_to_base_index(i).second;
+    unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; unsigned int basis_i = fe_trial.system_to_base_index(i).second;
 
 	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 		{
@@ -634,8 +630,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 
 	        for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
 	    	{
-			unsigned int comp_i = fe_trial.system_to_base_index(i).first.first;
-            unsigned int basis_i = fe_trial.system_to_base_index(i).second;
+			unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; unsigned int basis_i = fe_trial.system_to_base_index(i).second;
 
 			if (comp_i == 0) {local_right_hand_side(k) -= interior_solution(local_dof_indices_trial_cell[basis_i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];}
 			else {local_right_hand_side(k) -= trace_solution(local_dof_indices_trial_trace[basis_i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];}
@@ -682,9 +677,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
     refinement_vector(cell_no) = sqrt(refinement_vector(cell_no));
 	}
 
-std::cout << std::endl;
-std::cout << "Error Estimator: " << refinement_vector.l2_norm() << std::endl;
-std::cout << std::endl;
+std::cout << std::endl << "Error Estimator: " << refinement_vector.l2_norm() << std::endl << std::endl;
 }
 
 template <int dim> void ConvectionDiffusionDPG<dim>::refine_grid ()

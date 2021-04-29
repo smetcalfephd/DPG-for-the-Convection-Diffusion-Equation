@@ -89,12 +89,12 @@ private:
     FESystem<dim> fe_trial_interior, fe_trial_trace, fe_trial, fe_test;
 	DoFHandler<dim> dof_handler_trial, dof_handler_test, dof_handler_trial_interior, dof_handler_trial_trace;
 
-	AffineConstraints<double> trace_constraints;
-	SparsityPattern trace_sparsity_pattern;
+	AffineConstraints<double> constraints;
+	SparsityPattern sparsity_pattern;
 
-	SparseMatrix<double> trace_system_matrix;
-	Vector<double> interior_solution, trace_solution, trace_right_hand_side, refinement_vector;
-	std::vector<double> local_optimal_test_functions, bilinear_form_values_storage, V_basis_matrix_inverse_storage, estimator_right_hand_side_storage, intermediate_matrix_storage;
+	SparseMatrix<double> system_matrix;
+	Vector<double> solution, interior_solution, trace_solution, right_hand_side, refinement_vector;
+	std::vector<double> local_optimal_test_functions, bilinear_form_values_storage, V_basis_matrix_inverse_storage, estimator_right_hand_side_storage;
 };
 
 // The trial space consists of the following (in order): a scalar corresponding to u, a vector corresponding to grad(u), a trace term corresponding to trace(u) and a trace term corresponding to the flux.
@@ -113,8 +113,7 @@ template <int dim> Tensor<1, dim> ConvectionDiffusionDPG<dim>::convection (const
 {
 Tensor<1, dim> value;
 
-value[0] = 1;
-value[1] = 1;
+value[0] = 1; value[1] = 1;
 
 return value;
 }
@@ -127,64 +126,53 @@ dof_handler_trial.distribute_dofs (fe_trial); dof_handler_test.distribute_dofs (
 dof_handler_trial_interior.distribute_dofs (fe_trial_interior); dof_handler_trial_trace.distribute_dofs (fe_trial_trace);
 
 const unsigned int no_of_cells = triangulation.n_active_cells();
+const unsigned int no_of_trial_dofs = dof_handler_trial.n_dofs();
 const unsigned int no_of_interior_trial_dofs = dof_handler_trial_interior.n_dofs(); const unsigned int no_of_trace_trial_dofs = dof_handler_trial_trace.n_dofs();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell; const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
 
-std::cout << "Trial degrees of freedom: " << dof_handler_trial.n_dofs() << " (" << no_of_interior_trial_dofs << " interior, " << no_of_trace_trial_dofs << " trace)" << std::endl;
+std::cout << "Trial degrees of freedom: " << no_of_trial_dofs << " (" << no_of_interior_trial_dofs << " interior, " << no_of_trace_trial_dofs << " trace)" << std::endl;
 std::cout << "Test degrees of freedom: " << dof_handler_test.n_dofs() << std::endl;
 
 create_constraints();
 
-DynamicSparsityPattern trace_dsp (no_of_trace_trial_dofs);
-DoFTools::make_sparsity_pattern (dof_handler_trial_trace, trace_dsp);
-trace_constraints.condense (trace_dsp);
-trace_sparsity_pattern.copy_from (trace_dsp);
+DynamicSparsityPattern dsp (no_of_trial_dofs);
+DoFTools::make_sparsity_pattern (dof_handler_trial, dsp);
+constraints.condense (dsp);
+sparsity_pattern.copy_from (dsp);
 
-trace_system_matrix.reinit (trace_sparsity_pattern);
+system_matrix.reinit (sparsity_pattern);
+solution.reinit (no_of_trial_dofs);
 interior_solution.reinit (no_of_interior_trial_dofs);
 trace_solution.reinit (no_of_trace_trial_dofs);
-trace_right_hand_side.reinit (no_of_trace_trial_dofs);
+right_hand_side.reinit (no_of_trial_dofs);
 refinement_vector.reinit (no_of_cells);
 
 local_optimal_test_functions.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell, 0); std::fill (local_optimal_test_functions.begin(), local_optimal_test_functions.end(), 0);
 bilinear_form_values_storage.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*no_of_cells, 0); std::fill (bilinear_form_values_storage.begin(), bilinear_form_values_storage.end(), 0);
 V_basis_matrix_inverse_storage.resize ((unsigned int)(0.5*no_of_test_dofs_per_cell*(no_of_test_dofs_per_cell + 1) + 0.1)*no_of_cells, 0); std::fill (V_basis_matrix_inverse_storage.begin(), V_basis_matrix_inverse_storage.end(), 0);
 estimator_right_hand_side_storage.resize (no_of_test_dofs_per_cell*no_of_cells, 0); std::fill (estimator_right_hand_side_storage.begin(), estimator_right_hand_side_storage.end(), 0);
-intermediate_matrix_storage.resize (no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*no_of_cells, 0); std::fill (intermediate_matrix_storage.begin(), intermediate_matrix_storage.end(), 0);
 }
 
 // Creates boundary and hanging node constraints.
 
 template <int dim> void ConvectionDiffusionDPG<dim>::create_constraints ()
 {
-const FEValuesExtractors::Scalar dirichlet_index (0); const ComponentMask dirichlet_comp_mask = fe_trial_trace.component_mask (dirichlet_index);
-const FEValuesExtractors::Scalar robin_index (1); const ComponentMask robin_comp_mask = fe_trial_trace.component_mask (robin_index);
+const FEValuesExtractors::Scalar dirichlet_index (dim + 1); const ComponentMask dirichlet_comp_mask = fe_trial.component_mask (dirichlet_index);
+const FEValuesExtractors::Scalar robin_index (dim + 2); const ComponentMask robin_comp_mask = fe_trial.component_mask (robin_index);
 
-trace_constraints.clear ();
-VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 0, DirichletBoundaryValues<dim>(), trace_constraints, dirichlet_comp_mask); // Dirichlet boundary constraints.
-VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 1, RobinBoundaryValues<dim>(), trace_constraints, robin_comp_mask); // Robin boundary constraints.
-DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, trace_constraints); // Hanging node constraints.
-trace_constraints.close ();
+constraints.clear ();
+VectorTools::interpolate_boundary_values (dof_handler_trial, 0, DirichletBoundaryValues<dim>(), constraints, dirichlet_comp_mask); // Dirichlet boundary constraints.
+VectorTools::interpolate_boundary_values (dof_handler_trial, 1, RobinBoundaryValues<dim>(), constraints, robin_comp_mask); // Robin boundary constraints.
+DoFTools::make_hanging_node_constraints (dof_handler_trial, constraints); // Hanging node constraints.
+constraints.close ();
 }
 
-// Assemble the system. First note that we are going to use STATIC CONDENSATION to solve the linear system ( S_00  S_01 // S_10  S_11 ) ( U_INT // U_TR ) = ( F_INT // F_TR ) 
-// First we loop over all cells and allocate the values from compute_bilinear_form_values to the correct submatrices. We also compute the right-hand side vectors.
-// Expanding the system of equations implies that
-
-// S_00 * U_INT + S_01 * U_TR = F_INT => U_INT = inv(S_00) * F_INT - inv(S_00) * S_01 * U_TR,
-
-// S_10 * U_INT + S_11 * U_TR = F_TR => (S_11 - S_10 * inv(S_00) * S_01) * U_TR = F_TR - S_10 * inv(S_00) * F_INT.
-
-// Strategy: S_00 can be inverted LOCALLY since it contains no coupling (trace) terms and contains only cell terms. Thus, S_11 - S_10 * inv(S_00) * S_01 and F_TR - S_10 * inv(S_00) * F_INT may all be computed locally as well and then assembed into the global (trace) system matrix.
-// Once U_TR is known from a global solve, U_INT is then recovered from U_INT = inv(S_00) * F_INT - inv(S_00) * S_01 * U_TR. We can preallocate the portion inv(S_00) * F_INT locally as well but we must store the local matrix inv(S_00) * S_01 for each cell until U_TR is known.
-
-// If during assembly the current element K is the same size as the previous element K' AND the convection a|_K is the same as the convection a|_K' then we do not need to recalculate any of the bilinear form values, optimal test functions or local matrices.
-// We therefore check if the convection evaluated at the quadrature points on the current element is the same as on the previous element to within some degree of tolerance and we also check that measure(K) = measure(K'). If both true, we do not recalculate.
+// Assemble the system.
 
 template <int dim> void ConvectionDiffusionDPG<dim>::assemble_system ()
 {
-const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+1);
-const QGauss<dim-1>  quadrature_formula_face (degree+degree_offset);
+const QGauss<dim>  quadrature_formula_cell (degree + degree_offset + 1);
+const QGauss<dim-1>  quadrature_formula_face (degree + degree_offset);
 
 const unsigned int no_of_quad_points_cell = quadrature_formula_cell.size(); const unsigned int no_of_quad_points_face = quadrature_formula_face.size();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell; const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
@@ -198,35 +186,25 @@ FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_valu
 FEFaceValues<dim> fe_values_trial_face (fe_trial_trace, quadrature_formula_face, update_values);
 FEFaceValues<dim> fe_values_test_face (fe_test, quadrature_formula_face, update_values | update_JxW_values | update_normal_vectors);
    
-FullMatrix<double> local_trace_system_matrix (no_of_trace_trial_dofs_per_cell, no_of_trace_trial_dofs_per_cell);
-FullMatrix<double> local_system_submatrix_00 (no_of_interior_trial_dofs_per_cell, no_of_interior_trial_dofs_per_cell);
-FullMatrix<double> local_system_submatrix_01 (no_of_interior_trial_dofs_per_cell, no_of_trace_trial_dofs_per_cell);
-FullMatrix<double> local_system_submatrix_10 (no_of_trace_trial_dofs_per_cell, no_of_interior_trial_dofs_per_cell);
-FullMatrix<double> local_system_submatrix_11 (no_of_trace_trial_dofs_per_cell, no_of_trace_trial_dofs_per_cell);
-FullMatrix<double> intermediate_matrix (no_of_trace_trial_dofs_per_cell, no_of_interior_trial_dofs_per_cell);
-FullMatrix<double> intermediate_matrix1 (no_of_interior_trial_dofs_per_cell, no_of_trace_trial_dofs_per_cell);
-Vector<double> local_interior_solution (no_of_interior_trial_dofs_per_cell);
-Vector<double> local_interior_right_hand_side (no_of_interior_trial_dofs_per_cell);
-Vector<double> local_trace_right_hand_side (no_of_trace_trial_dofs_per_cell);
-Vector<double> intermediate_vector (no_of_trace_trial_dofs_per_cell);
+FullMatrix<double> local_system_matrix (no_of_trial_dofs_per_cell, no_of_trial_dofs_per_cell);
+Vector<double> local_right_hand_side (no_of_trial_dofs_per_cell);
 std::vector<Tensor<1,dim,double> > convection_values (no_of_quad_points_cell);
 std::vector<Tensor<1,dim,double> > previous_convection_values (no_of_quad_points_cell);
 std::vector<double> forcing_values (no_of_quad_points_cell);
-std::vector<types::global_dof_index> local_dof_indices_trial_cell (no_of_interior_trial_dofs_per_cell);
-std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
+std::vector<types::global_dof_index> local_dof_indices_trial (no_of_trial_dofs_per_cell);
 
 std::vector<unsigned int> additional_data (7); additional_data[0] = no_of_quad_points_cell; additional_data[1] = no_of_quad_points_face; additional_data[2] = no_of_trial_dofs_per_cell;
 additional_data[3] = no_of_test_dofs_per_cell; additional_data[4] = no_of_interior_trial_dofs_per_cell; additional_data[5] = no_of_trace_trial_dofs_per_cell; 
 
 unsigned int cell_no = 0; unsigned int previous_cell_no = 0; double cell_size = 0; double previous_cell_size = 0; 
 double cell_size_check = 0; double convection_check = 0;
-unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_3 = 0;
+unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 
     for (; trial_cell != final_cell; ++trial_cell, ++trial_cell_interior, ++trial_cell_trace, ++test_cell)
     {
 	fe_values_trial_cell.reinit (trial_cell_interior); fe_values_test_cell.reinit (test_cell);
 
-	trial_cell_interior->get_dof_indices (local_dof_indices_trial_cell); trial_cell_trace->get_dof_indices (local_dof_indices_trial_trace);
+	trial_cell->get_dof_indices (local_dof_indices_trial);
 
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 		convection_values[quad_point] = convection(fe_values_trial_cell.quadrature_point(quad_point));
@@ -236,7 +214,6 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 	cell_no = trial_cell->active_cell_index(); cell_size = trial_cell->measure();
 	index_no_1 = no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell*cell_no;
 	index_no_2 = no_of_test_dofs_per_cell*cell_no;
-	index_no_3 = no_of_interior_trial_dofs_per_cell*no_of_trace_trial_dofs_per_cell*cell_no;
 
 	cell_size_check = fabs(cell_size - previous_cell_size);
 
@@ -273,33 +250,12 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 	compute_bilinear_form_values (trial_cell_trace, test_cell, fe_values_trial_cell, fe_values_test_cell, fe_values_trial_face, fe_values_test_face, convection_values, additional_data);
 	compute_local_optimal_test_functions (fe_values_test_cell, convection_values, additional_data, cell_size, local_optimal_test_functions);
 
-	local_system_submatrix_00 = 0; local_system_submatrix_01 = 0; local_system_submatrix_10 = 0; local_system_submatrix_11 = 0;
+	local_system_matrix = 0;
 
-	    for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
-		{
-		const unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; const unsigned int basis_i = fe_trial.system_to_base_index(i).second;
-
+	    for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)		
 	        for (unsigned int j = 0; j < no_of_trial_dofs_per_cell; ++j)
-			{
-			const unsigned int comp_j = fe_trial.system_to_base_index(j).first.first; const unsigned int basis_j = fe_trial.system_to_base_index(j).second;
-
 			    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
-				{
-				if (comp_i == 0 && comp_j == 0) {local_system_submatrix_00(basis_i,basis_j) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*bilinear_form_values_storage[k + j*no_of_test_dofs_per_cell + index_no_1];}
-				if (comp_i == 0 && comp_j == 1) {local_system_submatrix_01(basis_i,basis_j) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*bilinear_form_values_storage[k + j*no_of_test_dofs_per_cell + index_no_1];}
-				if (comp_i == 1 && comp_j == 0) {local_system_submatrix_10(basis_i,basis_j) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*bilinear_form_values_storage[k + j*no_of_test_dofs_per_cell + index_no_1];}
-				if (comp_i == 1 && comp_j == 1) {local_system_submatrix_11(basis_i,basis_j) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*bilinear_form_values_storage[k + j*no_of_test_dofs_per_cell + index_no_1];}
-				}
-			}
-		}
-
- 	local_system_submatrix_00.gauss_jordan();
-	local_system_submatrix_10.mmult(intermediate_matrix, local_system_submatrix_00);
-	intermediate_matrix *= -1;
-
-	intermediate_matrix.mmult(local_trace_system_matrix, local_system_submatrix_01);
-	local_trace_system_matrix.add(1, local_system_submatrix_11);
-	local_system_submatrix_00.mmult(intermediate_matrix1, local_system_submatrix_01); 
+			    local_system_matrix(i,j) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*bilinear_form_values_storage[k + j*no_of_test_dofs_per_cell + index_no_1];
 	}
 
 		for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
@@ -315,40 +271,17 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_
 			estimator_right_hand_side_storage[k + index_no_2] += test_cell_value;
 
 				for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
-	            {
-				unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; unsigned int basis_i = fe_trial.system_to_base_index(i).second;
-
-				if (comp_i == 0) {local_interior_right_hand_side(basis_i) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*test_cell_value;} else {local_trace_right_hand_side(basis_i) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*test_cell_value;}
-			    }
+				local_right_hand_side(i) += local_optimal_test_functions[k + i*no_of_test_dofs_per_cell]*test_cell_value;
 			}
 		}
 		}
 
-	intermediate_matrix.vmult(intermediate_vector, local_interior_right_hand_side);
-	local_trace_right_hand_side.add(1, intermediate_vector);
-
-	    // Place the local system matrix contributions in the system matrix and the local right hand side contributions in the right hand side vector.
-        for (unsigned int i = 0; i < no_of_trace_trial_dofs_per_cell; ++i)
-	    {
-		    for (unsigned int j = 0; j < no_of_trace_trial_dofs_per_cell; ++j)
-		    trace_system_matrix(local_dof_indices_trial_trace[i], local_dof_indices_trial_trace[j]) += local_trace_system_matrix(i,j);
-
-     	trace_right_hand_side(local_dof_indices_trial_trace[i]) += local_trace_right_hand_side(i);
-	    }
-
-	local_system_submatrix_00.vmult (local_interior_solution, local_interior_right_hand_side);
-
-        for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
-     	interior_solution(local_dof_indices_trial_cell[i]) += local_interior_solution(i);
-
-		for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
-		    for (unsigned int j = 0; j < no_of_trace_trial_dofs_per_cell; ++j)
-			intermediate_matrix_storage[i + j*no_of_interior_trial_dofs_per_cell + index_no_3] = intermediate_matrix1(i,j);
+	constraints.distribute_local_to_global (local_system_matrix, local_right_hand_side, local_dof_indices_trial, system_matrix, right_hand_side, true);
     
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 		previous_convection_values[quad_point] = convection_values [quad_point];
 
-	local_interior_right_hand_side = 0; local_trace_right_hand_side = 0; previous_cell_no = cell_no; previous_cell_size = cell_size; 
+	local_right_hand_side = 0; previous_cell_no = cell_no; previous_cell_size = cell_size; 
     }
 }
 
@@ -504,41 +437,33 @@ V_basis_matrix_inverse.gauss_jordan(); // Invert the V basis matrix in preparati
 
 template <int dim> void ConvectionDiffusionDPG<dim>::solve ()
 {
-trace_constraints.condense (trace_system_matrix, trace_right_hand_side);
+SparseDirectUMFPACK system_matrix_inverse;
+system_matrix_inverse.initialize (system_matrix);
+system_matrix_inverse.vmult (solution, right_hand_side);
 
-SparseDirectUMFPACK trace_system_matrix_inverse;
-trace_system_matrix_inverse.initialize (trace_system_matrix);
-trace_system_matrix_inverse.vmult (trace_solution, trace_right_hand_side);
+constraints.distribute (solution);
 
-trace_constraints.distribute (trace_solution);
+const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell;
 
-const unsigned int no_of_interior_trial_dofs_per_cell = fe_trial_interior.dofs_per_cell;
-const unsigned int no_of_trace_trial_dofs_per_cell = fe_trial_trace.dofs_per_cell;
+std::vector<types::global_dof_index> local_dof_indices_trial (no_of_trial_dofs_per_cell);
+std::vector<types::global_dof_index> local_dof_indices_trial_cell (fe_trial_interior.dofs_per_cell);
+std::vector<types::global_dof_index> local_dof_indices_trial_trace (fe_trial_trace.dofs_per_cell);
 
-typename DoFHandler<dim>::active_cell_iterator trial_cell = dof_handler_trial_interior.begin_active(), final_cell = dof_handler_trial_interior.end();
+typename DoFHandler<dim>::active_cell_iterator trial_cell = dof_handler_trial.begin_active(), final_cell = dof_handler_trial.end();
+typename DoFHandler<dim>::active_cell_iterator trial_cell_interior = dof_handler_trial_interior.begin_active();
 typename DoFHandler<dim>::active_cell_iterator trial_cell_trace = dof_handler_trial_trace.begin_active();
 
-std::vector<types::global_dof_index> local_dof_indices_trial_cell (no_of_interior_trial_dofs_per_cell);
-std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
+    for (; trial_cell != final_cell; ++trial_cell, ++trial_cell_interior, ++trial_cell_trace)
+	{
+	trial_cell->get_dof_indices(local_dof_indices_trial); trial_cell_interior->get_dof_indices(local_dof_indices_trial_cell); trial_cell_trace->get_dof_indices(local_dof_indices_trial_trace); 
 
-std::vector<double> local_interior_solution (no_of_interior_trial_dofs_per_cell);
-
-    for (; trial_cell != final_cell; ++trial_cell, ++trial_cell_trace)
-    {
-	trial_cell->get_dof_indices (local_dof_indices_trial_cell);
-	trial_cell_trace->get_dof_indices (local_dof_indices_trial_trace);
-
-	const unsigned int cell_no = trial_cell->active_cell_index();
-	const unsigned int index_no = no_of_interior_trial_dofs_per_cell*no_of_trace_trial_dofs_per_cell*cell_no;
-
-	std::fill (local_interior_solution.begin(), local_interior_solution.end(), 0);
-
-        for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
-		    for (unsigned int j = 0; j < no_of_trace_trial_dofs_per_cell; ++j)
-			local_interior_solution[i] += intermediate_matrix_storage[i + j*no_of_interior_trial_dofs_per_cell + index_no]*trace_solution(local_dof_indices_trial_trace[j]);
-
-        for (unsigned int i = 0; i < no_of_interior_trial_dofs_per_cell; ++i)
-		interior_solution(local_dof_indices_trial_cell[i]) -= local_interior_solution[i];
+	    for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
+		{
+        const unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; const unsigned int basis_i = fe_trial.system_to_base_index(i).second;
+		
+		if (comp_i == 0) {interior_solution(local_dof_indices_trial_cell[basis_i]) = solution(local_dof_indices_trial[i]);}
+		if (comp_i == 1) {trace_solution(local_dof_indices_trial_trace[basis_i]) = solution(local_dof_indices_trial[i]);}
+		}
 	}
 }
 

@@ -74,7 +74,8 @@ public:
 	unsigned int cycle = 1; // The current solution cycle.
     
 private:
-    Tensor<1, dim> convection (const Point<dim> &x); // Convection function
+    Tensor<1, dim> convection (const Point<dim> &x, const double &u); // Convection function
+	Tensor<1, dim> convection_derivative (const Point<dim> &x, const double &u); // Convection derivative function
     void setup_system (); // Set up the system.
 	void create_constraints (); // Creates the constraints.
 	void assemble_system (); // Assemble the system.
@@ -109,7 +110,18 @@ template <int dim> ConvectionDiffusionDPG<dim>::ConvectionDiffusionDPG ()
 
 // Convection function.
 
-template <int dim> Tensor<1, dim> ConvectionDiffusionDPG<dim>::convection (const Point<dim> &x)
+template <int dim> Tensor<1, dim> ConvectionDiffusionDPG<dim>::convection (const Point<dim> &x, const double &u)
+{
+Tensor<1, dim> value;
+
+value[0] = u; value[1] = u;
+
+return value;
+}
+
+// Convection derivative function.
+
+template <int dim> Tensor<1, dim> ConvectionDiffusionDPG<dim>::convection_derivative (const Point<dim> &x, const double &u)
 {
 Tensor<1, dim> value;
 
@@ -206,7 +218,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 	trial_cell->get_dof_indices (local_dof_indices_trial);
 
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
-		convection_values[quad_point] = convection(fe_values_trial_cell.quadrature_point(quad_point));
+		convection_values[quad_point] = convection(fe_values_trial_cell.quadrature_point(quad_point), 1.0);
 
 	Forcing<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), forcing_values);
 
@@ -499,7 +511,6 @@ const QGauss<dim>  quadrature_formula_cell (degree+degree_offset+1);
 
 const unsigned int no_of_quad_points_cell = quadrature_formula_cell.size();
 const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell; const unsigned int no_of_test_dofs_per_cell = fe_test.dofs_per_cell;
-const unsigned int no_of_interior_trial_dofs_per_cell = fe_trial_interior.dofs_per_cell; const unsigned int no_of_trace_trial_dofs_per_cell = fe_trial_trace.dofs_per_cell;
 
 typename DoFHandler<dim>::active_cell_iterator test_cell = dof_handler_test.begin_active(), final_cell = dof_handler_test.end();
 typename DoFHandler<dim>::active_cell_iterator trial_cell = dof_handler_trial.begin_active();
@@ -530,7 +541,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 	index_no_3 = cell_no*no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell;
 
 		for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
-		convection_values[quad_point] = convection (fe_values_test_cell.quadrature_point(quad_point));
+		convection_values[quad_point] = convection (fe_values_test_cell.quadrature_point(quad_point), 1.0);
 
 	double C_K = fmin(epsilon/trial_cell->measure(), 1);
 

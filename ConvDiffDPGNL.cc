@@ -218,7 +218,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 	trial_cell->get_dof_indices (local_dof_indices_trial);
 
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
-		convection_values[quad_point] = convection(fe_values_trial_cell.quadrature_point(quad_point), 1.0);
+		convection_values[quad_point] = convection_derivative (fe_values_trial_cell.quadrature_point(quad_point), 1.0);
 
 	Forcing<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), forcing_values);
 
@@ -541,7 +541,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 	index_no_3 = cell_no*no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell;
 
 		for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
-		convection_values[quad_point] = convection (fe_values_test_cell.quadrature_point(quad_point), 1.0);
+		convection_values[quad_point] = convection_derivative (fe_values_test_cell.quadrature_point(quad_point), 1.0);
 
 	double C_K = fmin(epsilon/trial_cell->measure(), 1);
 

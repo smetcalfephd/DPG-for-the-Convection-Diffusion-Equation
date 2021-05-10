@@ -93,7 +93,7 @@ private:
 	SparsityPattern sparsity_pattern;
 
 	SparseMatrix<double> system_matrix;
-	Vector<double> solution, interior_solution, trace_solution, right_hand_side, refinement_vector;
+	Vector<double> solution, interior_solution, right_hand_side, refinement_vector;
 	std::vector<double> local_optimal_test_functions, bilinear_form_values_storage, V_basis_matrix_inverse_storage, estimator_right_hand_side_storage;
 };
 
@@ -143,7 +143,6 @@ sparsity_pattern.copy_from (dsp);
 system_matrix.reinit (sparsity_pattern);
 solution.reinit (no_of_trial_dofs);
 interior_solution.reinit (no_of_interior_trial_dofs);
-trace_solution.reinit (no_of_trace_trial_dofs);
 right_hand_side.reinit (no_of_trial_dofs);
 refinement_vector.reinit (no_of_cells);
 
@@ -462,7 +461,6 @@ typename DoFHandler<dim>::active_cell_iterator trial_cell_trace = dof_handler_tr
         const unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; const unsigned int basis_i = fe_trial.system_to_base_index(i).second;
 		
 		if (comp_i == 0) {interior_solution(local_dof_indices_trial_cell[basis_i]) = solution(local_dof_indices_trial[i]);}
-		if (comp_i == 1) {trace_solution(local_dof_indices_trial_trace[basis_i]) = solution(local_dof_indices_trial[i]);}
 		}
 	}
 }
@@ -504,7 +502,7 @@ const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell; const uns
 const unsigned int no_of_interior_trial_dofs_per_cell = fe_trial_interior.dofs_per_cell; const unsigned int no_of_trace_trial_dofs_per_cell = fe_trial_trace.dofs_per_cell;
 
 typename DoFHandler<dim>::active_cell_iterator test_cell = dof_handler_test.begin_active(), final_cell = dof_handler_test.end();
-typename DoFHandler<dim>::active_cell_iterator trial_cell_interior = dof_handler_trial_interior.begin_active(); typename DoFHandler<dim>::active_cell_iterator trial_cell_trace = dof_handler_trial_trace.begin_active();
+typename DoFHandler<dim>::active_cell_iterator trial_cell = dof_handler_trial.begin_active();
 
 FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_values | update_gradients | update_quadrature_points | update_JxW_values);
 
@@ -516,18 +514,17 @@ std::vector<double> v_values (no_of_quad_points_cell);
 std::vector<double> div_tau_values (no_of_quad_points_cell);
 std::vector<Tensor<1,dim,double> > tau_values (no_of_quad_points_cell);
 std::vector<Tensor<1,dim,double> > grad_v_values (no_of_quad_points_cell);
-std::vector<types::global_dof_index> local_dof_indices_trial_cell (no_of_interior_trial_dofs_per_cell);
-std::vector<types::global_dof_index> local_dof_indices_trial_trace (no_of_trace_trial_dofs_per_cell);
+std::vector<types::global_dof_index> local_dof_indices_trial (no_of_trial_dofs_per_cell);
 
 unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 = 0; unsigned int index_no_3 = 0;
 
-    for (; test_cell != final_cell; ++test_cell, ++trial_cell_interior, ++trial_cell_trace)
+    for (; test_cell != final_cell; ++test_cell, ++trial_cell)
     {
 	fe_values_test_cell.reinit (test_cell);
 
-    trial_cell_interior->get_dof_indices (local_dof_indices_trial_cell); trial_cell_trace->get_dof_indices (local_dof_indices_trial_trace);
+    trial_cell->get_dof_indices (local_dof_indices_trial);
 
-	cell_no = trial_cell_interior->active_cell_index();
+	cell_no = trial_cell->active_cell_index();
 	index_no_1 = (unsigned int)(0.5*no_of_test_dofs_per_cell*(no_of_test_dofs_per_cell + 1) + 0.1)*cell_no;
 	index_no_2 = no_of_test_dofs_per_cell*cell_no;
 	index_no_3 = cell_no*no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell;
@@ -535,7 +532,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 		for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 		convection_values[quad_point] = convection (fe_values_test_cell.quadrature_point(quad_point));
 
-	double C_K = fmin(epsilon/trial_cell_interior->measure(), 1);
+	double C_K = fmin(epsilon/trial_cell->measure(), 1);
 
 	    for (unsigned int k = 0; k < no_of_test_dofs_per_cell; ++k)
 	    {
@@ -548,12 +545,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 		local_right_hand_side(k) = estimator_right_hand_side_storage[k + index_no_2];
 
 	        for (unsigned int i = 0; i < no_of_trial_dofs_per_cell; ++i)
-	    	{
-			unsigned int comp_i = fe_trial.system_to_base_index(i).first.first; unsigned int basis_i = fe_trial.system_to_base_index(i).second;
-
-			if (comp_i == 0) {local_right_hand_side(k) -= interior_solution(local_dof_indices_trial_cell[basis_i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];}
-			else {local_right_hand_side(k) -= trace_solution(local_dof_indices_trial_trace[basis_i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];}
-		    }
+			local_right_hand_side(k) -= solution(local_dof_indices_trial[i])*bilinear_form_values_storage[k + i*no_of_test_dofs_per_cell + index_no_3];
         }
 
 	V_basis_matrix_inverse.vmult (local_residual_coefficients, local_right_hand_side);

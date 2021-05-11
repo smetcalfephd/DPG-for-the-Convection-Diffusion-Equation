@@ -284,7 +284,8 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 		{
 		    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 			{
-			double test_cell_value = forcing_values[quad_point]*fe_values_test_cell.shape_value_component(k,quad_point,0)*fe_values_test_cell.JxW(quad_point);
+			double test_cell_value = (forcing_values[quad_point]*fe_values_test_cell.shape_value_component(k,quad_point,0) + convection_values[quad_point]*fe_values_test_cell.shape_grad_component(k,quad_point,0)
+			                       - solution_values[quad_point]*convection_derivative_values[quad_point]*fe_values_test_cell.shape_grad_component(k,quad_point,0))*fe_values_test_cell.JxW(quad_point);
 
 			estimator_right_hand_side_storage[k + index_no_2] += test_cell_value;
 
@@ -629,8 +630,15 @@ GridGenerator::hyper_cube (triangulation, -1, 1); triangulation.refine_global (2
 	std::cout << "~~Solution Cycle " << cycle << "~~" << std::endl; std::cout << std::endl;
 
 	setup_system ();
-    assemble_system ();
-	solve ();
+
+	    for (unsigned int iter = 0; iter < 7; ++iter)
+		{
+        assemble_system ();
+	    solve ();
+
+		right_hand_side = 0;
+		}
+
 	output_solution ();
 	compute_error_estimator ();
 	refine_grid ();

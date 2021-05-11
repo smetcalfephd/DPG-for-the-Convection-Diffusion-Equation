@@ -93,7 +93,7 @@ private:
 	AffineConstraints<double> constraints;
 	SparsityPattern sparsity_pattern;
 
-	SparseMatrix<double> system_matrix;
+	SparseDirectUMFPACK system_matrix_inverse;
 	Vector<double> solution, interior_solution, right_hand_side, refinement_vector;
 	std::vector<double> local_optimal_test_functions, bilinear_form_values_storage, V_basis_matrix_inverse_storage, estimator_right_hand_side_storage;
 };
@@ -152,7 +152,6 @@ DoFTools::make_sparsity_pattern (dof_handler_trial, dsp);
 constraints.condense (dsp);
 sparsity_pattern.copy_from (dsp);
 
-system_matrix.reinit (sparsity_pattern);
 solution.reinit (no_of_trial_dofs);
 interior_solution.reinit (no_of_interior_trial_dofs);
 right_hand_side.reinit (no_of_trial_dofs);
@@ -197,6 +196,7 @@ FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_valu
 FEFaceValues<dim> fe_values_trial_face (fe_trial_trace, quadrature_formula_face, update_values);
 FEFaceValues<dim> fe_values_test_face (fe_test, quadrature_formula_face, update_values | update_JxW_values | update_normal_vectors);
    
+SparseMatrix<double> system_matrix (sparsity_pattern);
 FullMatrix<double> local_system_matrix (no_of_trial_dofs_per_cell, no_of_trial_dofs_per_cell);
 Vector<double> local_right_hand_side (no_of_trial_dofs_per_cell);
 std::vector<double> solution_values (no_of_quad_points_cell);
@@ -302,6 +302,8 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 
 	local_right_hand_side = 0; previous_cell_no = cell_no; previous_cell_size = cell_size; 
     }
+
+system_matrix_inverse.initialize (system_matrix);
 }
 
 // Intermediate function needed in assemble_system to assemble the system matrix. 
@@ -456,8 +458,6 @@ V_basis_matrix_inverse.gauss_jordan(); // Invert the V basis matrix in preparati
 
 template <int dim> void ConvectionDiffusionDPG<dim>::solve ()
 {
-SparseDirectUMFPACK system_matrix_inverse;
-system_matrix_inverse.initialize (system_matrix);
 system_matrix_inverse.vmult (solution, right_hand_side);
 
 constraints.distribute (solution);
@@ -637,6 +637,7 @@ GridGenerator::hyper_cube (triangulation, -1, 1); triangulation.refine_global (2
 	    solve ();
 
 		right_hand_side = 0;
+		std::fill (estimator_right_hand_side_storage.begin(), estimator_right_hand_side_storage.end(), 0);
 		}
 
 	output_solution ();

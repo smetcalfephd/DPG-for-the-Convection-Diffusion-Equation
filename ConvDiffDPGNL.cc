@@ -199,8 +199,10 @@ FEFaceValues<dim> fe_values_test_face (fe_test, quadrature_formula_face, update_
    
 FullMatrix<double> local_system_matrix (no_of_trial_dofs_per_cell, no_of_trial_dofs_per_cell);
 Vector<double> local_right_hand_side (no_of_trial_dofs_per_cell);
+std::vector<double> solution_values (no_of_quad_points_cell);
 std::vector<Tensor<1,dim,double> > convection_values (no_of_quad_points_cell);
-std::vector<Tensor<1,dim,double> > previous_convection_values (no_of_quad_points_cell);
+std::vector<Tensor<1,dim,double> > convection_derivative_values (no_of_quad_points_cell);
+std::vector<Tensor<1,dim,double> > previous_convection_derivative_values (no_of_quad_points_cell);
 std::vector<double> forcing_values (no_of_quad_points_cell);
 std::vector<types::global_dof_index> local_dof_indices_trial (no_of_trial_dofs_per_cell);
 
@@ -217,8 +219,13 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 
 	trial_cell->get_dof_indices (local_dof_indices_trial);
 
+	fe_values_trial_cell.get_function_values (interior_solution, solution_values);
+
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
-		convection_values[quad_point] = convection_derivative (fe_values_trial_cell.quadrature_point(quad_point), 1.0);
+		{
+		convection_values[quad_point] = convection (fe_values_trial_cell.quadrature_point(quad_point), solution_values[quad_point]);
+		convection_derivative_values[quad_point] = convection_derivative (fe_values_trial_cell.quadrature_point(quad_point), solution_values[quad_point]);
+		}
 
 	Forcing<dim>().value_list (fe_values_trial_cell.get_quadrature_points(), forcing_values);
 
@@ -234,7 +241,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 		    for (unsigned int d = 0; d < dim; ++d)
-		    convection_check += (convection_values[quad_point][d] - previous_convection_values[quad_point][d])*(convection_values[quad_point][d] - previous_convection_values[quad_point][d]);
+		    convection_check += (convection_derivative_values[quad_point][d] - previous_convection_derivative_values[quad_point][d])*(convection_derivative_values[quad_point][d] - previous_convection_derivative_values[quad_point][d]);
 
 	convection_check = sqrt(convection_check);
     }
@@ -258,8 +265,8 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 	{
     additional_data[6] = cell_no;
 
-	compute_bilinear_form_values (trial_cell_trace, test_cell, fe_values_trial_cell, fe_values_test_cell, fe_values_trial_face, fe_values_test_face, convection_values, additional_data);
-	compute_local_optimal_test_functions (fe_values_test_cell, convection_values, additional_data, cell_size, local_optimal_test_functions);
+	compute_bilinear_form_values (trial_cell_trace, test_cell, fe_values_trial_cell, fe_values_test_cell, fe_values_trial_face, fe_values_test_face, convection_derivative_values, additional_data);
+	compute_local_optimal_test_functions (fe_values_test_cell, convection_derivative_values, additional_data, cell_size, local_optimal_test_functions);
 
 	local_system_matrix = 0;
 
@@ -290,7 +297,7 @@ unsigned int index_no_1 = 0; unsigned int index_no_2 = 0;
 	constraints.distribute_local_to_global (local_system_matrix, local_right_hand_side, local_dof_indices_trial, system_matrix, right_hand_side, true);
     
 	    for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
-		previous_convection_values[quad_point] = convection_values [quad_point];
+		previous_convection_derivative_values[quad_point] = convection_derivative_values [quad_point];
 
 	local_right_hand_side = 0; previous_cell_no = cell_no; previous_cell_size = cell_size; 
     }
@@ -514,13 +521,16 @@ const unsigned int no_of_trial_dofs_per_cell = fe_trial.dofs_per_cell; const uns
 
 typename DoFHandler<dim>::active_cell_iterator test_cell = dof_handler_test.begin_active(), final_cell = dof_handler_test.end();
 typename DoFHandler<dim>::active_cell_iterator trial_cell = dof_handler_trial.begin_active();
+typename DoFHandler<dim>::active_cell_iterator trial_cell_interior = dof_handler_trial_interior.begin_active();
 
+FEValues<dim> fe_values_trial_cell (fe_trial_interior, quadrature_formula_cell, update_values);
 FEValues<dim> fe_values_test_cell (fe_test, quadrature_formula_cell, update_values | update_gradients | update_quadrature_points | update_JxW_values);
 
 FullMatrix<double> V_basis_matrix_inverse (no_of_test_dofs_per_cell, no_of_test_dofs_per_cell);
 Vector<double> local_residual_coefficients (no_of_test_dofs_per_cell);
 Vector<double> local_right_hand_side (no_of_test_dofs_per_cell);
-std::vector<Tensor<1,dim,double> > convection_values (no_of_quad_points_cell);
+std::vector<double> solution_values (no_of_quad_points_cell);
+std::vector<Tensor<1,dim,double> > convection_derivative_values (no_of_quad_points_cell);
 std::vector<double> v_values (no_of_quad_points_cell);
 std::vector<double> div_tau_values (no_of_quad_points_cell);
 std::vector<Tensor<1,dim,double> > tau_values (no_of_quad_points_cell);
@@ -531,9 +541,11 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 
     for (; test_cell != final_cell; ++test_cell, ++trial_cell)
     {
-	fe_values_test_cell.reinit (test_cell);
+	fe_values_trial_cell.reinit (trial_cell_interior); fe_values_test_cell.reinit (test_cell);
 
     trial_cell->get_dof_indices (local_dof_indices_trial);
+
+	fe_values_trial_cell.get_function_values (interior_solution, solution_values);
 
 	cell_no = trial_cell->active_cell_index();
 	index_no_1 = (unsigned int)(0.5*no_of_test_dofs_per_cell*(no_of_test_dofs_per_cell + 1) + 0.1)*cell_no;
@@ -541,7 +553,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 	index_no_3 = cell_no*no_of_trial_dofs_per_cell*no_of_test_dofs_per_cell;
 
 		for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
-		convection_values[quad_point] = convection_derivative (fe_values_test_cell.quadrature_point(quad_point), 1.0);
+		convection_derivative_values[quad_point] = convection_derivative (fe_values_test_cell.quadrature_point(quad_point), solution_values[quad_point]);
 
 	double C_K = fmin(epsilon/trial_cell->measure(), 1);
 
@@ -592,7 +604,7 @@ unsigned int cell_no = 0; unsigned int index_no_1 = 0; unsigned int index_no_2 =
 		for (unsigned int quad_point = 0; quad_point < no_of_quad_points_cell; ++quad_point)
 		{
 		refinement_vector(cell_no) += (C_K*grad_v_values[quad_point]*grad_v_values[quad_point] + C_K*(1/epsilon)*(1/epsilon)*tau_values[quad_point]*tau_values[quad_point] + 2*C_K*(1/epsilon)*tau_values[quad_point]*grad_v_values[quad_point]
-		                              + (div_tau_values[quad_point] - convection_values[quad_point]*grad_v_values[quad_point])*(div_tau_values[quad_point] - convection_values[quad_point]*grad_v_values[quad_point]) 
+		                              + (div_tau_values[quad_point] - convection_derivative_values[quad_point]*grad_v_values[quad_point])*(div_tau_values[quad_point] - convection_derivative_values[quad_point]*grad_v_values[quad_point]) 
 									  + v_values[quad_point]*v_values[quad_point] + grad_v_values[quad_point]*grad_v_values[quad_point])*fe_values_test_cell.JxW(quad_point);
 		}
 

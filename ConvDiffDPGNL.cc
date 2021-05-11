@@ -114,7 +114,7 @@ template <int dim> Tensor<1, dim> ConvectionDiffusionDPG<dim>::convection (const
 {
 Tensor<1, dim> value;
 
-value[0] = u; value[1] = u;
+value[0] = -u; value[1] = -u;
 
 return value;
 }
@@ -125,7 +125,7 @@ template <int dim> Tensor<1, dim> ConvectionDiffusionDPG<dim>::convection_deriva
 {
 Tensor<1, dim> value;
 
-value[0] = 1; value[1] = 1;
+value[0] = -1; value[1] = -1;
 
 return value;
 }

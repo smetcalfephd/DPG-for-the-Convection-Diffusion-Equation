@@ -69,33 +69,24 @@ double x = 0; double y = 0; double z = 0;
 	}
 }
 
-// Dirichlet boundary values function enforcing u = g to be applied to all boundary points with indicator 0.
+// Boundary values function.
 
-template <int dim> class DirichletBoundaryValues : public Function<dim>
+template <int dim> class BoundaryValues :  public Function<dim>
 {
-public: virtual double value (const Point<dim> &point, const unsigned int) const override
-{
-double x = 0; double y = 0; double z = 0;
+public: BoundaryValues ();
 
-x = point[0]; switch(dim) {case 2: y = point[1]; break; case 3: y = point[1]; z = point[2]; break;}
-
-return erf(x/sqrt(2*epsilon))*(1 - y*y);
-}
+virtual void vector_value (const Point<dim> &point, Vector<double> &vector) const;
 };
 
-// Robin boundary values function enforcing (b*u - epsilon*grad(u))*n = g to be applied to all boundary points with indicator 1.
+template <int dim> BoundaryValues<dim>::BoundaryValues () : Function<dim> (dim) {}
 
-template <int dim> class RobinBoundaryValues : public Function<dim>
+template <int dim> inline void BoundaryValues<dim>::vector_value (const Point<dim> &point, Vector<double> &vector) const
 {
-public: virtual double value (const Point<dim> &point, const unsigned int) const override
-{
-// double x = 0; double y = 0; double z = 0;
+double x = point(0); double y = point(1); //double z = point(2);
 
-// x = point[0]; switch(dim) {case 2: y = point[1]; break; case 3: y = point[1]; z = point[2]; break;}
-
-return 0;
+vector(0) = erf(x/sqrt(2*epsilon))*(1 - y*y); // Dirichlet boundary values function enforcing u = g to be applied to all boundary points with indicator 0.
+vector(1) = 0; // Robin boundary values function enforcing (b*u - epsilon*grad(u))*n = g to be applied to all boundary points with indicator 1.
 }
-};
 
 // Exact solution
 
@@ -206,8 +197,8 @@ const FEValuesExtractors::Scalar dirichlet_index (0); const ComponentMask dirich
 const FEValuesExtractors::Scalar robin_index (1); const ComponentMask robin_comp_mask = fe_trial_trace.component_mask (robin_index);
 
 trace_constraints.clear ();
-VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 0, DirichletBoundaryValues<dim>(), trace_constraints, dirichlet_comp_mask); // Dirichlet boundary constraints.
-VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 1, RobinBoundaryValues<dim>(), trace_constraints, robin_comp_mask); // Robin boundary constraints.
+VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 0, BoundaryValues<dim>(), trace_constraints, dirichlet_comp_mask); // Dirichlet boundary constraints.
+VectorTools::interpolate_boundary_values (dof_handler_trial_trace, 1, BoundaryValues<dim>(), trace_constraints, robin_comp_mask); // Robin boundary constraints.
 DoFTools::make_hanging_node_constraints (dof_handler_trial_trace, trace_constraints); // Hanging node constraints.
 trace_constraints.close ();
 }
